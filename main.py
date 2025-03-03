@@ -9,11 +9,19 @@ import cv2
 import asyncio
 import json,os
 from datetime import datetime 
+import pytz
 from typing import List
-from process_image import find_anomaly
+from process_image import find_anomaly,check_camera_blockage,is_black_or_white_screen
 import logging
 from fastapi.middleware.cors import CORSMiddleware
 import shutil
+import warnings
+
+warnings.filterwarnings("ignore", category=UserWarning, module="torchvision")
+
+
+swiss_tz = pytz.timezone('Europe/Zurich')
+
 
 # Add at top of file after imports
 if not os.path.exists("logs"):
@@ -23,7 +31,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(f'logs/app_{datetime.now().strftime("%Y%m%d")}.log'),
+        logging.FileHandler(f'logs/app_{datetime.now(swiss_tz).strftime("%Y%m%d")}.log'),
         logging.StreamHandler()
     ]
 )
@@ -58,7 +66,7 @@ class LoginResponse(BaseModel):
 # Database connection function
 def get_db():
     try:
-        conn = sqlite3.connect("inspection_system_new2.db")
+        conn = sqlite3.connect("inspection_system_new3.db")
         cursor = conn.cursor()
         return conn, cursor
     except Exception as e:
@@ -79,7 +87,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(f'logs/app_{datetime.now().strftime("%Y%m%d")}.log'),
+        logging.FileHandler(f'logs/app_{datetime.now(swiss_tz).strftime("%Y%m%d")}.log'),
         logging.StreamHandler()
     ]
 )
@@ -103,7 +111,10 @@ async def login(request: LoginRequest):
         columns = [col[0] for col in cursor.description]
         user = dict(zip(columns, user))
 
-        now = datetime.utcnow()
+        swiss_tz = pytz.timezone('Europe/Zurich')  # Time zone for Switzerland
+        swiss_time = datetime.now(swiss_tz)
+        # now = datetime.utcnow()
+        now = swiss_time
 
         # Check if account is locked
         if user["locked_until"] and now < datetime.fromisoformat(user["locked_until"]):
@@ -224,6 +235,8 @@ async def inspect(websocket: WebSocket):
         _, img_encoded = cv2.imencode(".jpg", image2)
         img2 = img_encoded.tobytes()
 
+
+
         if image1 is None or image2 is None:
             logger.error("Failed to capture one or both images")
             await websocket.send_json({"error": "Failed to capture images"})
@@ -257,15 +270,28 @@ async def inspect(websocket: WebSocket):
 
         ref_img1= cv2.imread(os.path.join(IMAGE_FOLDER, images[0]))
         _, img_encoded = cv2.imencode(".jpg", ref_img1)
-        ref_img1= img_encoded.tobytes()
+        ref_img1_encoded= img_encoded.tobytes()
 
         ref_img2= cv2.imread(os.path.join(IMAGE_FOLDER, images[1]))
         _, img_encoded = cv2.imencode(".jpg", ref_img2)
-        ref_img2= img_encoded.tobytes()
+        ref_img2_encoded= img_encoded.tobytes()
+
+        # check if camera blocked
+        camera1_blocked1 = check_camera_blockage(image1,ref_img1)
+        camera2_blocked2 = check_camera_blockage(image2,ref_img2)
+        is_black_or_white_screen1 = is_black_or_white_screen(image1)
+        is_black_or_white_screen2 = is_black_or_white_screen(image2)
+
+        if(camera1_blocked1 or camera2_blocked2 or is_black_or_white_screen1 or is_black_or_white_screen2):
+            #log this
+            logger.error("Camera blocked or scene changed")
+            await websocket.send_json({"error": "Camera blocked or scene change detected"})
+            conn.close()
+            raise RuntimeError("Camera blocked or scene changed")
 
         await websocket.send_json({
-            "image1": base64.b64encode(ref_img1).decode("utf-8"),
-            "image2": base64.b64encode(ref_img2).decode("utf-8"),
+            "image1": base64.b64encode(ref_img1_encoded).decode("utf-8"),
+            "image2": base64.b64encode(ref_img2_encoded).decode("utf-8"),
             "bounding_boxes1": [],
             "bounding_boxes2": []
         })
@@ -360,7 +386,7 @@ async def inspect(websocket: WebSocket):
 #             logger.info(f"Directory {save_dir} created.")
 
 #         # Save images
-#         timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+#         timestamp = datetime.now(swiss_tz).strftime('%Y-%m-%d_%H-%M-%S')
 #         img1_path = f"{save_dir}/0_{timestamp}.jpg"
 #         img2_path = f"{save_dir}/2_{timestamp}.jpg"
 
@@ -536,7 +562,7 @@ async def set_roi():
         im2_b64 = base64.b64encode(im_arr2.tobytes()).decode("utf-8")
 
         # Save images with timestamp
-        timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        timestamp = datetime.now(swiss_tz).strftime('%Y-%m-%d_%H-%M-%S')
         img1_path = os.path.join(IMAGE_FOLDER, f"0_{timestamp}.jpg")
         img2_path = os.path.join(IMAGE_FOLDER, f"2_{timestamp}.jpg")
 
@@ -710,7 +736,7 @@ async def start_session(session_data: SessionRequest):
             logger.info(f"User {session_data.username} found with ID {user_id}")
 
         # Generate session name based on timestamp
-        session_name = f"Session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        session_name = f"Session_{datetime.now(swiss_tz).strftime('%Y%m%d_%H%M%S')}"
         logger.info(f"Generated session name: {session_name}")
 
         # Start new session
@@ -762,7 +788,7 @@ async def end_session(session_id: int, request: EndSessionRequest):
             raise HTTPException(status_code=404, detail="Session not found or already ended")
 
         # Update session with end time and final statuses
-        end_time = datetime.now()
+        end_time = datetime.now(swiss_tz)
         cursor.execute("""
             UPDATE Session 
             SET end_time=?, cam1_final_status=?, cam2_final_status=?, comment=?
@@ -843,6 +869,8 @@ class FeedbackItem(BaseModel):
     camera_index: int
     reviewer_comment: str
     bounding_boxes_missed: List[BoundingBoxMissed]
+    anomalies_detected: int
+    anomalies_missed: int
 
 class SubmitFeedbackRequest(BaseModel):
     inspection_id: int
@@ -875,8 +903,8 @@ async def submit_feedback(request: SubmitFeedbackRequest):
             logger.info(f"Inserting feedback for camera {feedback.camera_index} with comment: {feedback.reviewer_comment}")
             
             cursor.execute(
-                "INSERT INTO Reviewer_Feedback (inspection_id, camera_index, reviewer_id, reviewer_comment) VALUES (?, ?, ?, ?)",
-                (request.inspection_id, feedback.camera_index, request.reviewer_id, feedback.reviewer_comment)
+                "INSERT INTO Reviewer_Feedback (inspection_id, camera_index, reviewer_id, reviewer_comment, Anomalies_found, Anomalies_missed) VALUES (?, ?, ?, ?, ?, ?)",
+                (request.inspection_id, feedback.camera_index, request.reviewer_id, feedback.reviewer_comment, feedback.anomalies_detected, feedback.anomalies_missed)
             )
             feedback_id = cursor.lastrowid
             logger.info(f"Inserted feedback with ID {feedback_id} for camera {feedback.camera_index}")
@@ -986,3 +1014,96 @@ def get_history(
         logger.info("Database connection closed.")
 
 
+#--------------------------------------------------------------------------------------------------------------------------
+
+#Inspection Details for a session id
+
+DB_PATH = "inspection_system_new3.db"
+
+class SessionRequest(BaseModel):
+    session_id: int
+
+def get_inspections(session_id: int):
+    """Fetch inspection details including images, timestamp, user_id, bounding boxes."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Get user_id from Session table
+    cursor.execute("SELECT user_id FROM Session WHERE session_id = ?", (session_id,))
+    session_data = cursor.fetchone()
+    user_id = session_data[0] if session_data else None
+    
+    cursor.execute("""
+        SELECT inspection_id, inspection_timestamp, image_path1, image_path2 
+        FROM Inspection 
+        WHERE session_id = ?
+    """, (session_id,))
+    
+    inspections = []
+    for row in cursor.fetchall():
+        inspection_id, timestamp, img_path1, img_path2 = row
+        
+        def encode_image(img_path):
+            try:
+                with open(img_path, "rb") as img_file:
+                    return base64.b64encode(img_file.read()).decode('utf-8')
+            except Exception:
+                return None  # Handle missing images gracefully
+        
+        cursor.execute("SELECT bbox_id, camera_index, x_min, y_min, x_max, y_max, confidence FROM BoundingBox_AI WHERE inspection_id = ?", (inspection_id,))
+        bounding_boxes_ai = [
+            {
+                "bbox_id": bbox[0],
+                "camera_index": bbox[1],
+                "x": bbox[2],
+                "y": bbox[3],
+                "width": bbox[4] - bbox[2],
+                "height": bbox[5] - bbox[3],
+                "confidence": bbox[6],
+                "label": "AI detected"
+            }
+            for bbox in cursor.fetchall()
+        ]
+        
+        cursor.execute("""
+            SELECT bm.bbox_id, bm.feedback_id, rf.camera_index, bm.x_min, bm.y_min, bm.x_max, bm.y_max, rf.reviewer_comment, rf.Anomalies_found, rf.Anomalies_missed
+            FROM BoundingBox_Missed bm 
+            JOIN Reviewer_Feedback rf ON bm.feedback_id = rf.feedback_id 
+            WHERE rf.inspection_id = ?
+        """, (inspection_id,))
+        missed_bounding_boxes = [
+            {
+                "bbox_id": bbox[0],
+                "feedback_id": bbox[1],
+                "camera_index": bbox[2],
+                "x": bbox[3],
+                "y": bbox[4],
+                "width": bbox[5] - bbox[3],
+                "height": bbox[6] - bbox[4],
+                "label": "Missed by AI",
+                "reviewer_comment": bbox[7],
+                "Anomalies_found": bbox[8],
+                "Anomalies_missed": bbox[9]
+            }
+            for bbox in cursor.fetchall()
+        ]
+        
+        inspections.append({
+            "inspection_id": inspection_id,
+            "timestamp": timestamp,
+            "user_id": user_id,
+            "image1": encode_image(img_path1),
+            "image2": encode_image(img_path2),
+            "bounding_boxes_ai": bounding_boxes_ai,
+            "missed_bounding_boxes": missed_bounding_boxes
+        })
+    
+    conn.close()
+    return inspections
+
+@app.post("/inspections")
+def get_inspections_by_session(request: SessionRequest):
+    inspections = get_inspections(request.session_id)
+    if not inspections:
+        raise HTTPException(status_code=404, detail="No inspections found for this session")
+    return {"session_id": request.session_id, "inspections": inspections}

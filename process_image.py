@@ -12,6 +12,10 @@ import cv2
 from skimage.metrics import structural_similarity
 from sklearn.cluster import KMeans
 import time
+import warnings
+
+warnings.filterwarnings("ignore", category=UserWarning, module="torchvision")
+
 
 def preprocess_image(image, device):
     transform = transforms.Compose([
@@ -19,6 +23,38 @@ def preprocess_image(image, device):
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
     return transform(image).unsqueeze(0).to(device)
+
+def check_camera_blockage(reference_image, current_image, threshold=0.71):
+    ref_gray = cv2.cvtColor(reference_image, cv2.COLOR_BGR2GRAY)
+    curr_gray = cv2.cvtColor(current_image, cv2.COLOR_BGR2GRAY)
+    score, _ = structural_similarity(ref_gray, curr_gray, full=True)
+    print(f"SSIM Score: {score}")
+    return score < threshold  # True means possible blockage
+
+import cv2
+import numpy as np
+
+def is_black_or_white_screen(image, std_threshold=10, mean_threshold=50):
+    if image is None:
+        raise ValueError("Image is empty or not loaded properly")
+
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)  # Convert to grayscale
+    mean_pixel = np.mean(gray)  # Average intensity
+    std_pixel = np.std(gray)  # Standard deviation of intensity
+    
+    print(f"Mean: {mean_pixel:.2f}, Std Dev: {std_pixel:.2f}")
+
+    # Black screen: Low mean and low variation
+    if mean_pixel < mean_threshold and std_pixel < std_threshold:
+        return True  # Likely a black screen
+
+    # White screen: High mean and low variation
+    if mean_pixel > (255 - mean_threshold) and std_pixel < std_threshold:
+        return True  # Likely a white screen
+
+    return False
+
+
 
 def extract_embeddings(model, image, boxes, device):
     # img=image.detach().cpu().numpy()
@@ -28,7 +64,7 @@ def extract_embeddings(model, image, boxes, device):
     # cv2.waitKey(0)
     # cv2.destroyAllWindows()
 
-    print(boxes)
+    # print(boxes)
 
     embeddings, positions = [], []
     for (x, y, w, h) in boxes:
@@ -167,7 +203,7 @@ def visualize_final_anomalies(target_img_path, final_boxes,camid):
 
 def find_anomaly(reference_image_path, target_image_path, camid, roi, metric='cosine', threshold_method='fixed'):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
+    # print(f"Using device: {device}")
     
     reference_image_full = cv2.imread(reference_image_path)
     # cv2.imshow("reference_image", reference_image_full)
@@ -181,6 +217,14 @@ def find_anomaly(reference_image_path, target_image_path, camid, roi, metric='co
     # print("Select ROI and press ENTER")
     # roi = cv2.selectROI("Select ROI", reference_image_full, showCrosshair=True)
     # cv2.destroyWindow("Select ROI")
+
+    #check if camera is blocked
+    # if check_camera_blockage(reference_image_full, target_image_full):
+    #     print("Camera is blocked")
+    #     raise RuntimeError("Camera is blocked")
+
+
+
     x, y, w, h = roi['x'], roi['y'], roi['width'], roi['height']
     
     # reference_roi = reference_image_full[y:y+h, x:x+w]
@@ -190,8 +234,8 @@ def find_anomaly(reference_image_path, target_image_path, camid, roi, metric='co
 
     ssim_boxes = get_ssim_bounding_boxes(reference_image_full, target_image_full)
 
-    for (bx, by, bw, bh) in ssim_boxes:
-        print(type(bx), type(x))
+    # for (bx, by, bw, bh) in ssim_boxes:
+    #     print(type(bx), type(x))
 
     # ssim_boxes = [(x+bx, y+by, bw, bh) for (bx, by, bw, bh) in ssim_boxes]
     ssim_end_time=time.time()

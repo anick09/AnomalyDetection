@@ -1,7 +1,7 @@
 import sqlite3
 
 def create_tables():
-    conn = sqlite3.connect("inspection_system_new2.db")  # Creates/opens a database file
+    conn = sqlite3.connect("inspection_system_new3.db")  # Creates/opens a database file
     cursor = conn.cursor()
     
     # Enable Foreign Key Constraints
@@ -69,6 +69,8 @@ def create_tables():
             camera_index TINYINT ,
             reviewer_id INTEGER NOT NULL,
             reviewer_comment TEXT NOT NULL,
+            Anomalies_found INTEGER,
+            Anomalies_missed INTEGER,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (inspection_id) REFERENCES Inspection(inspection_id) ON DELETE CASCADE,
             FOREIGN KEY (reviewer_id) REFERENCES Users(id) ON DELETE SET NULL

@@ -24,6 +24,9 @@ inspection_system_new.sqbpro
 *.odt
 *.odt#
 
+# git token
+git_token.txt
+
 # Distribution / packaging
 .Python
 build/
