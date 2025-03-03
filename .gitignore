@@ -6,6 +6,24 @@ __pycache__/
 # C extensions
 *.so
 
+# Directories
+full_image/
+full_image_setROI/
+jnjbackend/
+logs/
+full_image_inspection/
+backup_images/
+
+# Database
+inspection_system.db
+inspection_system_new.db
+inspection_system_new2.db
+inspection_system_new.sqbpro
+
+# odt files
+*.odt
+*.odt#
+
 # Distribution / packaging
 .Python
 build/
