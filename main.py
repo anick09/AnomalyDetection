@@ -996,7 +996,7 @@ def get_history(
 
         # Fetch paginated sessions with final_status
         cursor.execute("""
-            SELECT s.session_id, s.session_name, u.username, s.start_time, s.end_time, s.cam1_final_status, s.cam2_final_status, s.comment
+            SELECT s.session_id, s.session_name, u.username, s.start_time, s.end_time, s.cam1_final_status, s.cam2_final_status, s.comment, s.lot_number
             FROM Session s
             JOIN Users u ON s.user_id = u.id
             ORDER BY s.start_time DESC
@@ -1013,7 +1013,7 @@ def get_history(
 
         history_data = []
         for session in sessions:
-            session_id, session_name, username, start_time, end_time, cam1_final_status, cam2_final_status, comment = session
+            session_id, session_name, username, start_time, end_time, cam1_final_status, cam2_final_status, comment, lot_number = session
 
             status_text = "Completed" if end_time else "In Progress"
             history_data.append({
@@ -1024,7 +1024,8 @@ def get_history(
                 "cam1_final_status": cam1_final_status,
                 "cam2_final_status": cam2_final_status,
                 "comment": comment,  # Now including final_status field
-                "status_text": status_text  # Human-readable status
+                "status_text": status_text,  # Human-readable status
+                "lot_number": lot_number
             })
 
         total_pages = (total_sessions + page_size - 1) // page_size
