@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test ROI API</title>
+    <style>
+        .canvas-container {
+            position: relative;
+            display: inline-block;
+        }
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Test ROI API</h1>
+    <button onclick="fetchROI()">Capture ROI</button>
+    <p id="status"></p>
+    
+    <div class="canvas-container">
+        <h3>Camera 0</h3>
+        <img id="image1" style="max-width: 100%;"/>
+        <canvas id="canvas1"></canvas>
+        <button onclick="submitROI(0)">Set ROI</button>
+    </div>
+    
+    <div class="canvas-container">
+        <h3>Camera 2</h3>
+        <img id="image2" style="max-width: 100%;"/>
+        <canvas id="canvas2"></canvas>
+        <button onclick="submitROI(2)">Set ROI</button>
+    </div>
+
+    <script>
+        let roiData = {};
+        
+        function setupCanvas(canvasId, imageId, cameraId) {
+            const img = document.getElementById(imageId);
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext("2d");
+            
+            img.onload = function() {
+                canvas.width = img.width;
+                canvas.height = img.height;
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            };
+            
+            let startX, startY, endX, endY;
+            let drawing = false;
+            
+            canvas.onmousedown = function(event) {
+                drawing = true;
+                startX = event.offsetX;
+                startY = event.offsetY;
+            };
+            
+            canvas.onmousemove = function(event) {
+                if (!drawing) return;
+                endX = event.offsetX;
+                endY = event.offsetY;
+                
+                const width = Math.abs(endX - startX);
+                const height = Math.abs(endY - startY);
+                const x = Math.min(startX, endX);
+                const y = Math.min(startY, endY);
+                
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.strokeStyle = "red";
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x, y, width, height);
+            };
+            
+            canvas.onmouseup = function() {
+                drawing = false;
+                
+                const width = Math.abs(endX - startX);
+                const height = Math.abs(endY - startY);
+                const x = Math.min(startX, endX);
+                const y = Math.min(startY, endY);
+
+                if (width > 0 && height > 0) {
+                    roiData[cameraId] = { x, y, width, height };
+                }
+            };
+        }
+        
+        async function fetchROI() {
+            document.getElementById('status').innerText = "Fetching images...";
+            try {
+                const response = await fetch("http://106.51.73.87:8001/setRoi");
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                const data = await response.json();
+                console.log("API Response:", data);
+                
+                if (!data.frame1 || !data.frame2) {
+                    document.getElementById('status').innerText = "Error: Missing image data.";
+                    console.error("Missing image data in response.");
+                    return;
+                }
+                
+                document.getElementById('status').innerText = "Images retrieved successfully!";
+                
+                document.getElementById('image1').src = `data:image/jpeg;base64,${data.frame1}`;
+                document.getElementById('image2').src = `data:image/jpeg;base64,${data.frame2}`;
+                
+                setupCanvas("canvas1", "image1", 0); // Camera 0
+                setupCanvas("canvas2", "image2", 2); // Camera 2
+            } catch (error) {
+                document.getElementById('status').innerText = "Failed to fetch images.";
+                console.error("Error fetching ROI data:", error);
+            }
+        }
+        
+        async function submitROI(cameraId) {
+            if (!roiData[cameraId]) {
+                alert("Please draw an ROI first.");
+                return;
+            }
+            
+            const requestData = {
+                camera_id: cameraId,
+                bounding_box: roiData[cameraId]
+            };
+            
+            try {
+                const response = await fetch("http://106.51.73.87:8001/setRoi/submit", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(requestData)
+                });
+                const result = await response.json();
+                alert(result.status);
+            } catch (error) {
+                alert("Failed to submit ROI");
+                console.error("Error submitting ROI:", error);
+            }
+        }
+    </script>
+</body>
+</html>

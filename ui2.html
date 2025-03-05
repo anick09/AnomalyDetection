@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Image Inspection</title>
+</head>
+<body>
+    <h2>WebSocket Image Inspection</h2>
+    <button onclick="startInspection()">Start Inspection</button>
+    <br><br>
+    <canvas id="canvas1"></canvas>
+    <canvas id="canvas2"></canvas>
+    <script>
+        let socket;
+
+        function startInspection() {
+            socket = new WebSocket("ws://192.168.1.64:8001/inspect");
+            socket.onopen = function () {
+                console.log("WebSocket Connected");
+                socket.send(JSON.stringify({ session_id: 1 }));
+            };
+
+            socket.onmessage = function (event) {
+                const data = JSON.parse(event.data);
+                
+                if (data.error) {
+                    console.error("Error:", data.error);
+                    return;
+                }
+
+                if (data.image1 && data.image2) {
+                    displayImage("canvas1", data.image1);
+                    displayImage("canvas2", data.image2);
+                }
+
+                if (data.bounding_boxes1 && data.bounding_boxes2) {
+                    drawBoundingBoxes("canvas1", data.bounding_boxes1);
+                    drawBoundingBoxes("canvas2", data.bounding_boxes2);
+                }
+            };
+
+            socket.onclose = function () {
+                console.log("WebSocket Closed");
+            };
+        }
+
+        function displayImage(canvasId, base64Image) {
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext("2d");
+            const img = new Image();
+            img.onload = function () {
+                canvas.width = img.width;
+                canvas.height = img.height;
+                ctx.drawImage(img, 0, 0);
+            };
+            img.src = "data:image/jpeg;base64," + base64Image;
+        }
+
+        function drawBoundingBoxes(canvasId, boundingBoxes) {
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext("2d");
+            ctx.strokeStyle = "red";
+            ctx.lineWidth = 2;
+            boundingBoxes.forEach(({ x, y, width, height }) => {
+                ctx.strokeRect(x, y, width, height);
+            });
+        }
+    </script>
+</body>
+</html>
