@@ -1,7 +1,7 @@
 import sqlite3
 
 def create_tables():
-    conn = sqlite3.connect("inspection_system_new3.db")  # Creates/opens a database file
+    conn = sqlite3.connect("inspection_system_new4.db")  # Creates/opens a database file
     cursor = conn.cursor()
     
     # Enable Foreign Key Constraints
@@ -29,6 +29,7 @@ def create_tables():
             end_time TIMESTAMP NULL,
             cam1_final_status INTEGER,
             cam2_final_status INTEGER,
+            lot_number INTEGER,
             comment TEXT,
             FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE SET NULL
         );

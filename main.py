@@ -66,7 +66,7 @@ class LoginResponse(BaseModel):
 # Database connection function
 def get_db():
     try:
-        conn = sqlite3.connect("inspection_system_new3.db")
+        conn = sqlite3.connect("inspection_system_new4.db")
         cursor = conn.cursor()
         return conn, cursor
     except Exception as e:
@@ -227,11 +227,19 @@ async def inspect(websocket: WebSocket):
         
         # Capture images
         logger.info("Attempting to capture images from cameras")
+        #time to capture and encode image
+        start_time= datetime.now()
         image1 = capture_image(0)
+        end_time = datetime.now()
+        print(f"time to capture and encode image1: {end_time-start_time}")
+        image2 = capture_image(2)
+
+
         _, img_encoded = cv2.imencode(".jpg", image1)
         img1 = img_encoded.tobytes()
 
-        image2 = capture_image(2)
+
+        # image2 = capture_image(2)
         _, img_encoded = cv2.imencode(".jpg", image2)
         img2 = img_encoded.tobytes()
 
@@ -285,7 +293,10 @@ async def inspect(websocket: WebSocket):
         if(camera1_blocked1 or camera2_blocked2 or is_black_or_white_screen1 or is_black_or_white_screen2):
             #log this
             logger.error("Camera blocked or scene changed")
-            await websocket.send_json({"error": "Camera blocked or scene change detected"})
+            await websocket.send_json({"error": "Camera blocked or scene change detected",
+                                       "image1": base64.b64encode(img1).decode("utf-8"),
+                                       "image2": base64.b64encode(img2).decode("utf-8")
+                                       })
             conn.close()
             raise RuntimeError("Camera blocked or scene changed")
 
@@ -712,6 +723,7 @@ async def set_threshold(data: dict):
 class SessionRequest(BaseModel):
     username: str
     role: str
+    lot_number: int
 
 
 @app.post("/newSession")
@@ -740,7 +752,7 @@ async def start_session(session_data: SessionRequest):
         logger.info(f"Generated session name: {session_name}")
 
         # Start new session
-        cursor.execute("INSERT INTO Session (session_name, user_id) VALUES (?, ?)", (session_name, user_id))
+        cursor.execute("INSERT INTO Session (session_name, user_id, lot_number) VALUES (?, ?, ?)", (session_name, user_id, session_data.lot_number))
         conn.commit()
 
         session_id = cursor.lastrowid  # Get the session ID of the newly created session
@@ -1018,7 +1030,7 @@ def get_history(
 
 #Inspection Details for a session id
 
-DB_PATH = "inspection_system_new3.db"
+DB_PATH = "inspection_system_new4.db"
 
 class SessionRequest(BaseModel):
     session_id: int
@@ -1103,7 +1115,39 @@ def get_inspections(session_id: int):
 
 @app.post("/inspections")
 def get_inspections_by_session(request: SessionRequest):
+    logger.info(f"Fetching inspections for session ID {request.session_id}")
     inspections = get_inspections(request.session_id)
     if not inspections:
+        logger.warning(f"No inspections found for session ID {request.session_id}")
         raise HTTPException(status_code=404, detail="No inspections found for this session")
+    logger.info(f"Returning {len(inspections)} inspections for session ID {request.session_id}")
     return {"session_id": request.session_id, "inspections": inspections}
+
+#-----------------------------------------------------------------------------------------------------------------------------------
+
+class LogoutRequest(BaseModel):
+    user_id: int
+
+
+@app.post("/logout")
+async def logout(request: LogoutRequest):
+    """Handles user logout by marking user as logged out but keeping the session open."""
+    try:
+        logger.info(f"Logging out user with ID: {request.user_id}")
+        # conn, cursor = get_db()
+
+        # # Optionally mark the user as logged out
+        # cursor.execute("UPDATE Users SET is_logged_in=0 WHERE id=?", (user_id,))
+        # conn.commit()
+
+        logger.info(f"User {request.user_id} logged out successfully")
+        return {"status": "Success", "message": "Logout successful. You can log in again anytime."}
+    
+    # except sqlite3.Error as db_error:
+    #     logger.error(f"Database error during logout: {db_error}")
+    #     raise HTTPException(status_code=500, detail="Database error occurred")
+    
+    finally:
+        # conn.close()
+        # logger.info("Database connection closed.")
+        pass

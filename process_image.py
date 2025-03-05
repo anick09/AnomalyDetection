@@ -13,8 +13,31 @@ from skimage.metrics import structural_similarity
 from sklearn.cluster import KMeans
 import time
 import warnings
+import logging
+import os
+from datetime import datetime
+import pytz 
 
 warnings.filterwarnings("ignore", category=UserWarning, module="torchvision")
+
+# Add at top of file after imports
+if not os.path.exists("logs"):
+    os.makedirs("logs")
+
+swiss_tz = pytz.timezone('Europe/Zurich')
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(f'logs/app_{datetime.now(swiss_tz).strftime("%Y%m%d")}.log'),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger(__name__)
+
 
 
 def preprocess_image(image, device):
@@ -126,6 +149,12 @@ def get_resnet_anomalies(reference_image, target_image, model, ssim_boxes, metri
 
 
     cov_matrix = np.cov(ref_embeddings.T) if metric == 'mahalanobis' else None
+
+    #if ref_embeddings is empty or tgt_embeddings is empty return empty list
+    if len(ref_embeddings)==0 or len(tgt_embeddings)==0:
+        logger.info("Reference or Target embeddings are empty")
+        return []
+    
     scores = compute_similarity_scores(ref_embeddings, tgt_embeddings, metric, cov_matrix)
 
     dynamic_thres_start_time=time.time()
