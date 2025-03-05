@@ -225,6 +225,36 @@ async def inspect(websocket: WebSocket):
         inspection_id = cursor.lastrowid
         logger.info(f"Created new inspection record with id: {inspection_id}")
         
+
+        #Read reference images from files
+        images = sorted(
+            [f for f in os.listdir(IMAGE_FOLDER) if f.endswith(".jpg")],  # Filter only .jpg images
+            key=lambda x: x[0]  # Sort by the first character of the filename
+        )
+        #Reading reference image from files
+        ref_img1= cv2.imread(os.path.join(IMAGE_FOLDER, images[0]))
+        _, img_encoded = cv2.imencode(".jpg", ref_img1)
+        ref_img1_encoded= img_encoded.tobytes()
+        # log
+        logger.info("Reference image 1 read and encoded")
+
+        ref_img2= cv2.imread(os.path.join(IMAGE_FOLDER, images[1]))
+        _, img_encoded = cv2.imencode(".jpg", ref_img2)
+        ref_img2_encoded= img_encoded.tobytes()
+        # log
+        logger.info("Reference image 2 read and encoded")
+
+        await websocket.send_json({
+            "image1": base64.b64encode(ref_img1_encoded).decode("utf-8"),
+            "image2": base64.b64encode(ref_img2_encoded).decode("utf-8"),
+            "bounding_boxes1": [],
+            "bounding_boxes2": []
+        })
+        #log 
+        logger.info("Reference images sent to UI")
+
+
+
         # Capture images
         logger.info("Attempting to capture images from cameras")
         #time to capture and encode image
@@ -271,18 +301,18 @@ async def inspect(websocket: WebSocket):
         conn.commit()
 
         # Read image from full_image_setROI
-        images = sorted(
-            [f for f in os.listdir(IMAGE_FOLDER) if f.endswith(".jpg")],  # Filter only .jpg images
-            key=lambda x: x[0]  # Sort by the first character of the filename
-        )
+        # images = sorted(
+        #     [f for f in os.listdir(IMAGE_FOLDER) if f.endswith(".jpg")],  # Filter only .jpg images
+        #     key=lambda x: x[0]  # Sort by the first character of the filename
+        # )
 
-        ref_img1= cv2.imread(os.path.join(IMAGE_FOLDER, images[0]))
-        _, img_encoded = cv2.imencode(".jpg", ref_img1)
-        ref_img1_encoded= img_encoded.tobytes()
+        # ref_img1= cv2.imread(os.path.join(IMAGE_FOLDER, images[0]))
+        # _, img_encoded = cv2.imencode(".jpg", ref_img1)
+        # ref_img1_encoded= img_encoded.tobytes()
 
-        ref_img2= cv2.imread(os.path.join(IMAGE_FOLDER, images[1]))
-        _, img_encoded = cv2.imencode(".jpg", ref_img2)
-        ref_img2_encoded= img_encoded.tobytes()
+        # ref_img2= cv2.imread(os.path.join(IMAGE_FOLDER, images[1]))
+        # _, img_encoded = cv2.imencode(".jpg", ref_img2)
+        # ref_img2_encoded= img_encoded.tobytes()
 
         # check if camera blocked
         camera1_blocked1 = check_camera_blockage(image1,ref_img1)
@@ -300,12 +330,12 @@ async def inspect(websocket: WebSocket):
             conn.close()
             raise RuntimeError("Camera blocked or scene changed")
 
-        await websocket.send_json({
-            "image1": base64.b64encode(ref_img1_encoded).decode("utf-8"),
-            "image2": base64.b64encode(ref_img2_encoded).decode("utf-8"),
-            "bounding_boxes1": [],
-            "bounding_boxes2": []
-        })
+        # await websocket.send_json({
+        #     "image1": base64.b64encode(ref_img1_encoded).decode("utf-8"),
+        #     "image2": base64.b64encode(ref_img2_encoded).decode("utf-8"),
+        #     "bounding_boxes1": [],
+        #     "bounding_boxes2": []
+        # })
         
         # Process images asynchronously
         bounding_boxes1, bounding_boxes2 = await process_images(image1, image2)
