@@ -16,6 +16,7 @@ import logging
 from fastapi.middleware.cors import CORSMiddleware
 import shutil
 import warnings
+from typing import Optional
 
 warnings.filterwarnings("ignore", category=UserWarning, module="torchvision")
 
@@ -258,29 +259,39 @@ async def inspect(websocket: WebSocket):
         # Capture images
         logger.info("Attempting to capture images from cameras")
         #time to capture and encode image
-        start_time= datetime.now()
         image1 = capture_image(0)
-        end_time = datetime.now()
-        print(f"time to capture and encode image1: {end_time-start_time}")
         image2 = capture_image(2)
+
+        if image1 is None and image2 is None:
+            logger.error("Both Camera 0 and Camera 2 are disconnected.")
+            await websocket.send_json({"error": "Both Camera 0 and Camera 2 are disconnected. Please check the connection."})
+            await websocket.close()
+            conn.close()
+            return
+        elif image1 is None:
+            logger.error("Camera 0 is disconnected.")
+            await websocket.send_json({"error": "Camera 0 is disconnected. Please check the connection."})
+            await websocket.close()
+            conn.close()
+            return
+        elif image2 is None:
+            logger.error("Camera 2 is disconnected.")
+            await websocket.send_json({"error": "Camera 2 is disconnected. Please check the connection."})
+            await websocket.close()
+            conn.close()
+            return
 
 
         _, img_encoded = cv2.imencode(".jpg", image1)
         img1 = img_encoded.tobytes()
 
 
-        # image2 = capture_image(2)
         _, img_encoded = cv2.imencode(".jpg", image2)
         img2 = img_encoded.tobytes()
 
 
 
-        if image1 is None or image2 is None:
-            logger.error("Failed to capture one or both images")
-            await websocket.send_json({"error": "Failed to capture images"})
-            await websocket.close()
-            conn.close()
-            return
+        
 
         # ...existing code...
         # Create directory if not exists
@@ -300,19 +311,6 @@ async def inspect(websocket: WebSocket):
         )
         conn.commit()
 
-        # Read image from full_image_setROI
-        # images = sorted(
-        #     [f for f in os.listdir(IMAGE_FOLDER) if f.endswith(".jpg")],  # Filter only .jpg images
-        #     key=lambda x: x[0]  # Sort by the first character of the filename
-        # )
-
-        # ref_img1= cv2.imread(os.path.join(IMAGE_FOLDER, images[0]))
-        # _, img_encoded = cv2.imencode(".jpg", ref_img1)
-        # ref_img1_encoded= img_encoded.tobytes()
-
-        # ref_img2= cv2.imread(os.path.join(IMAGE_FOLDER, images[1]))
-        # _, img_encoded = cv2.imencode(".jpg", ref_img2)
-        # ref_img2_encoded= img_encoded.tobytes()
 
         # check if camera blocked
         camera1_blocked1 = check_camera_blockage(image1,ref_img1)
@@ -324,18 +322,12 @@ async def inspect(websocket: WebSocket):
             #log this
             logger.error("Camera blocked or scene changed")
             await websocket.send_json({"error": "Camera blocked or scene change detected",
-                                       "image1": base64.b64encode(img1).decode("utf-8"),
-                                       "image2": base64.b64encode(img2).decode("utf-8")
+                                       "current_image1": base64.b64encode(img1).decode("utf-8"),
+                                       "current_image2": base64.b64encode(img2).decode("utf-8")
                                        })
             conn.close()
             raise RuntimeError("Camera blocked or scene changed")
 
-        # await websocket.send_json({
-        #     "image1": base64.b64encode(ref_img1_encoded).decode("utf-8"),
-        #     "image2": base64.b64encode(ref_img2_encoded).decode("utf-8"),
-        #     "bounding_boxes1": [],
-        #     "bounding_boxes2": []
-        # })
         
         # Process images asynchronously
         bounding_boxes1, bounding_boxes2 = await process_images(image1, image2)
@@ -396,83 +388,19 @@ async def inspect(websocket: WebSocket):
 
 
 #-------------------------------------------------------------------------------------------------------------------------------
-
-# @app.get("/setRoi")
-# async def set_roi():
-#     logger.info("set_roi endpoint called.")
-
-#     try:
-#         frame1 = capture_image(0)  # First camera
-#         if frame1 is None:
-#             raise ValueError("Failed to capture image from Camera 0")
-
-#         _, im_arr = cv2.imencode('.jpg', frame1)  
-#         im_bytes = im_arr.tobytes()
-#         im1_b64 = base64.b64encode(im_bytes)
-
-#         frame2 = capture_image(2)  # Second camera
-#         if frame2 is None:
-#             raise ValueError("Failed to capture image from Camera 2")
-
-#         _, im_arr = cv2.imencode('.jpg', frame2)  
-#         im_bytes = im_arr.tobytes()
-#         im2_b64 = base64.b64encode(im_bytes)
-
-#         logger.info("Both images captured successfully.")
-
-#         # Create directory if it doesn't exist
-#         save_dir = "full_image_setROI"
-#         if not os.path.exists(save_dir):
-#             os.makedirs(save_dir)
-#             logger.info(f"Directory {save_dir} created.")
-
-#         # Save images
-#         timestamp = datetime.now(swiss_tz).strftime('%Y-%m-%d_%H-%M-%S')
-#         img1_path = f"{save_dir}/0_{timestamp}.jpg"
-#         img2_path = f"{save_dir}/2_{timestamp}.jpg"
-
-#         cv2.imwrite(img1_path, frame1)
-#         cv2.imwrite(img2_path, frame2)
-
-#         logger.info(f"Images saved successfully: {img1_path}, {img2_path}")
-
-#         return {
-#             "frame1": im1_b64.decode("utf-8"),
-#             "frame2": im2_b64.decode("utf-8")
-#         }
-
-#     except ValueError as ve:
-#         logger.error(f"ValueError: {ve}")
-#         raise HTTPException(status_code=500, detail=str(ve))
-#     except Exception as e:
-#         logger.error(f"Unexpected error in set_roi: {e}")
-#         raise HTTPException(status_code=500, detail="Internal server error")
-
-
-# ROI_FILE = "roi_data.json"
-
-# class BoundingBox(BaseModel):
-#     x: int
-#     y: int
-#     width: int
-#     height: int
-
-# class SubmitROIRequest(BaseModel):
-#     camera_id: int
-#     bounding_box: BoundingBox
-
-
 def capture_image(camera_id=0):
-    """Captures an image from the specified camera."""
+    """Captures an image from the specified camera and handles disconnection properly."""
     try:
         logger.info(f"Attempting to capture image from Camera {camera_id}")
-        camera_url = camera_id
-        if camera_id == 0:
-            camera_url = "rtsp://192.168.10.92/live1.sdp"
-        else:
-            camera_url = "rtsp://192.168.11.93/live1.sdp"
+        
+        camera_url = "rtsp://192.168.10.92/live1.sdp" if camera_id == 0 else "rtsp://192.168.11.93/live1.sdp"
 
         cap = cv2.VideoCapture(camera_url)
+
+        if not cap.isOpened():
+            logger.error(f"Camera {camera_id} is disconnected or unavailable.")
+            return None  # Camera not available
+
         ret, frame = cap.read()
         cap.release()
 
@@ -488,39 +416,7 @@ def capture_image(camera_id=0):
         return None
 
 
-# def save_roi_data(camera_id, bounding_box):
-#     """Saves ROI (Region of Interest) data for a given camera."""
-#     try:
-#         logger.info(f"Saving ROI data for Camera {camera_id}")
 
-#         # Load existing ROI data if file exists
-#         if os.path.exists(ROI_FILE):
-#             try:
-#                 with open(ROI_FILE, "r") as f:
-#                     roi_data = json.load(f)
-#                 logger.info("Successfully loaded existing ROI data.")
-#             except json.JSONDecodeError:
-#                 logger.warning("ROI file exists but is corrupted. Resetting data.")
-#                 roi_data = {}
-#         else:
-#             roi_data = {}
-
-        # # Update or add new entry
-        # roi_data[str(camera_id)] = {
-        #     "x": bounding_box.x,
-        #     "y": bounding_box.y,
-        #     "width": bounding_box.width,
-        #     "height": bounding_box.height
-        # }
-
-        # # Save updated JSON
-        # with open(ROI_FILE, "w") as f:
-        #     json.dump(roi_data, f, indent=4)
-
-        # logger.info(f"ROI data saved successfully for Camera {camera_id}")
-
-#     except Exception as e:
-#         logger.error(f"Error saving ROI data for Camera {camera_id}: {e}")
 ROI_FILE = "roi_data.json"
 IMAGE_FOLDER = "full_image_setROI"
 BACKUP_FOLDER = "backup_images"
@@ -671,44 +567,6 @@ async def submit_roi(data: SubmitROIRequest):
         logger.exception(f"Unexpected error in submit_roi: {e}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred")
 
-# # @app.post("/setRoi/submit")
-# # async def submit_roi(data: SubmitROIRequest):
-# #     """Handles ROI submission by capturing an image, cropping the ROI, and saving it."""
-# #     try:
-# #         logger.info(f"Received ROI submission request for Camera {data.camera_id}")
-
-# #         frame = capture_image(data.camera_id)
-
-# #         if frame is None:
-# #             logger.error(f"Failed to capture image from Camera {data.camera_id}")
-# #             raise HTTPException(status_code=500, detail="Failed to capture image from camera")
-
-# #         x, y, w, h = data.bounding_box.x, data.bounding_box.y, data.bounding_box.width, data.bounding_box.height
-# #         logger.info(f"Cropping ROI: x={x}, y={y}, width={w}, height={h}")
-
-# #         roi = frame[y:y+h, x:x+w]
-
-# #         if roi.size == 0:
-# #             logger.warning(f"Invalid bounding box dimensions for Camera {data.camera_id}: {data.bounding_box}")
-# #             raise HTTPException(status_code=400, detail="Invalid bounding box dimensions")
-
-# #         filename = f"roi_camera_{data.camera_id}.jpg"
-# #         cv2.imwrite(filename, roi)
-# #         logger.info(f"ROI image saved as {filename} for Camera {data.camera_id}")
-
-# #         save_roi_data(data.camera_id, data.bounding_box)
-# #         logger.info(f"ROI data successfully saved for Camera {data.camera_id}")
-
-# #         return {"status": "Success"}
-
-#     except HTTPException as http_exc:
-#         logger.error(f"HTTP Exception in submit_roi for Camera {data.camera_id}: {http_exc.detail}")
-#         raise http_exc  # Reraise the HTTPException so FastAPI handles it properly
-
-#     except Exception as e:
-#         logger.exception(f"Unexpected error in submit_roi for Camera {data.camera_id}: {e}")
-#         raise HTTPException(status_code=500, detail="An unexpected error occurred")
-
 
 #--------------------------------------------------------------------------------------------------------------------
 
@@ -753,7 +611,7 @@ async def set_threshold(data: dict):
 class SessionRequest(BaseModel):
     username: str
     role: str
-    lot_number: int
+    lot_number: Optional[int] = -1 # Default value for lot_number if not provided by user
 
 
 @app.post("/newSession")
@@ -1067,7 +925,7 @@ class SessionRequest(BaseModel):
     session_id: int
 
 def get_inspections(session_id: int):
-    """Fetch inspection details including images, timestamp, user_id, bounding boxes."""
+    """Fetch inspection details including images, timestamp, user_id, bounding boxes, and reviewer feedback."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
@@ -1109,7 +967,7 @@ def get_inspections(session_id: int):
         ]
         
         cursor.execute("""
-            SELECT bm.bbox_id, bm.feedback_id, rf.camera_index, bm.x_min, bm.y_min, bm.x_max, bm.y_max, rf.reviewer_comment, rf.Anomalies_found, rf.Anomalies_missed
+            SELECT bm.bbox_id, bm.feedback_id, rf.camera_index, bm.x_min, bm.y_min, bm.x_max, bm.y_max 
             FROM BoundingBox_Missed bm 
             JOIN Reviewer_Feedback rf ON bm.feedback_id = rf.feedback_id 
             WHERE rf.inspection_id = ?
@@ -1123,13 +981,23 @@ def get_inspections(session_id: int):
                 "y": bbox[4],
                 "width": bbox[5] - bbox[3],
                 "height": bbox[6] - bbox[4],
-                "label": "Missed by AI",
-                "reviewer_comment": bbox[7],
-                "Anomalies_found": bbox[8],
-                "Anomalies_missed": bbox[9]
+                "label": "Missed by AI"
             }
             for bbox in cursor.fetchall()
         ]
+        
+        cursor.execute("""
+            SELECT feedback_id, reviewer_comment, Anomalies_found, Anomalies_missed
+            FROM Reviewer_Feedback 
+            WHERE inspection_id = ?
+        """, (inspection_id,))
+        reviewer_feedback = cursor.fetchone()
+        feedback_data = {
+            "feedback_id": reviewer_feedback[0],
+            "reviewer_comment": reviewer_feedback[1],
+            "Anomalies_found": reviewer_feedback[2],
+            "Anomalies_missed": reviewer_feedback[3]
+        } if reviewer_feedback else None
         
         inspections.append({
             "inspection_id": inspection_id,
@@ -1138,7 +1006,9 @@ def get_inspections(session_id: int):
             "image1": encode_image(img_path1),
             "image2": encode_image(img_path2),
             "bounding_boxes_ai": bounding_boxes_ai,
-            "missed_bounding_boxes": missed_bounding_boxes
+            "total_detections": len(bounding_boxes_ai),
+            "missed_bounding_boxes": missed_bounding_boxes,
+            "reviewer_feedback": feedback_data
         })
     
     conn.close()

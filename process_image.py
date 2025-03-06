@@ -47,7 +47,7 @@ def preprocess_image(image, device):
     ])
     return transform(image).unsqueeze(0).to(device)
 
-def check_camera_blockage(reference_image, current_image, threshold=0.71):
+def check_camera_blockage(reference_image, current_image, threshold=0.75):
     ref_gray = cv2.cvtColor(reference_image, cv2.COLOR_BGR2GRAY)
     curr_gray = cv2.cvtColor(current_image, cv2.COLOR_BGR2GRAY)
     score, _ = structural_similarity(ref_gray, curr_gray, full=True)
