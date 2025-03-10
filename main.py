@@ -67,7 +67,7 @@ class LoginResponse(BaseModel):
 # Database connection function
 def get_db():
     try:
-        conn = sqlite3.connect("inspection_system_new4.db")
+        conn = sqlite3.connect("inspection_system_new5.db")
         cursor = conn.cursor()
         return conn, cursor
     except Exception as e:
@@ -318,15 +318,15 @@ async def inspect(websocket: WebSocket):
         is_black_or_white_screen1 = is_black_or_white_screen(image1)
         is_black_or_white_screen2 = is_black_or_white_screen(image2)
 
-        if(camera1_blocked1 or camera2_blocked2 or is_black_or_white_screen1 or is_black_or_white_screen2):
-            #log this
-            logger.error("Camera blocked or scene changed")
-            await websocket.send_json({"error": "Camera blocked or scene change detected",
-                                       "current_image1": base64.b64encode(img1).decode("utf-8"),
-                                       "current_image2": base64.b64encode(img2).decode("utf-8")
-                                       })
-            conn.close()
-            raise RuntimeError("Camera blocked or scene changed")
+        # if(camera1_blocked1 or camera2_blocked2 or is_black_or_white_screen1 or is_black_or_white_screen2):
+            # log this
+            # logger.error("Camera blocked or scene changed")
+            # await websocket.send_json({"error": "Camera blocked or scene change detected",
+            #                            "current_image1": base64.b64encode(img1).decode("utf-8"),
+            #                            "current_image2": base64.b64encode(img2).decode("utf-8")
+            #                            })
+            # conn.close()
+            # raise RuntimeError("Camera blocked or scene changed")
 
         
         # Process images asynchronously
@@ -758,19 +758,95 @@ async def get_session(session_id: int):
 ## Submit Inspection Review
 
 
-# Request model for submitting reviewer feedback
-class BoundingBoxMissed(BaseModel):
-    x: float
-    y: float
-    width: float
-    height: float
+# # Request model for submitting reviewer feedback
+# class BoundingBoxMissed(BaseModel):
+#     x: float
+#     y: float
+#     width: float
+#     height: float
+
+# class FeedbackItem(BaseModel):
+#     camera_index: int
+#     reviewer_comment: str
+#     bounding_boxes_missed: List[BoundingBoxMissed]
+#     anomalies_detected: int
+#     anomalies_missed: int
+
+# class SubmitFeedbackRequest(BaseModel):
+#     inspection_id: int
+#     reviewer_id: int
+#     feedback: List[FeedbackItem]
+
+
+# @app.post("/submit")
+# async def submit_feedback(request: SubmitFeedbackRequest):
+#     """Handles submission of reviewer feedback."""
+#     try:
+#         logger.info(f"Received feedback submission for inspection ID {request.inspection_id} by reviewer {request.reviewer_id}")
+
+#         conn, cursor = get_db()
+
+#         # Check if the inspection exists
+#         cursor.execute("SELECT * FROM Inspection WHERE inspection_id = ?", (request.inspection_id,))
+#         if cursor.fetchone() is None:
+#             logger.warning(f"Inspection ID {request.inspection_id} not found.")
+#             raise HTTPException(status_code=404, detail="Inspection not found")
+
+#         # Check if the reviewer exists
+#         cursor.execute("SELECT * FROM Users WHERE id = ?", (request.reviewer_id,))
+#         if cursor.fetchone() is None:
+#             logger.warning(f"Reviewer ID {request.reviewer_id} not found.")
+#             raise HTTPException(status_code=404, detail="Reviewer ID not found")
+
+#         # Insert feedback and missed bounding boxes
+#         for feedback in request.feedback:
+#             logger.info(f"Inserting feedback for camera {feedback.camera_index} with comment: {feedback.reviewer_comment}")
+            
+#             cursor.execute(
+#                 "INSERT INTO Reviewer_Feedback (inspection_id, camera_index, reviewer_id, reviewer_comment, Anomalies_found, Anomalies_missed) VALUES (?, ?, ?, ?, ?, ?)",
+#                 (request.inspection_id, feedback.camera_index, request.reviewer_id, feedback.reviewer_comment, feedback.anomalies_detected, feedback.anomalies_missed)
+#             )
+#             feedback_id = cursor.lastrowid
+#             logger.info(f"Inserted feedback with ID {feedback_id} for camera {feedback.camera_index}")
+
+#             for bbox in feedback.bounding_boxes_missed:
+#                 logger.info(f"Inserting missed bounding box for feedback ID {feedback_id}: ({bbox.x}, {bbox.y}, {bbox.x+bbox.width}, {bbox.y+bbox.height})")
+
+#                 cursor.execute(
+#                     "INSERT INTO BoundingBox_Missed (feedback_id, x_min, y_min, x_max, y_max) VALUES (?, ?, ?, ?, ?)",
+#                     (feedback_id, bbox.x, bbox.y, bbox.x+bbox.width, bbox.y+bbox.height)
+#                 )
+
+#         conn.commit()
+#         logger.info(f"Feedback successfully submitted for inspection ID {request.inspection_id}")
+#         return {"status": "Success"}
+
+#     except sqlite3.Error as db_error:
+#         logger.error(f"Database error while submitting feedback: {db_error}")
+#         raise HTTPException(status_code=500, detail="Database error occurred")
+
+#     except Exception as e:
+#         logger.exception(f"Unexpected error in submit_feedback: {e}")
+#         raise HTTPException(status_code=500, detail="An unexpected error occurred")
+
+#     finally:
+#         conn.close()
+#         logger.info("Database connection closed.")
+
+class BoundingBoxData(BaseModel):
+    x: int
+    y: int
+    width: int
+    height: int
+    type: str  # 'FP' for False Positive, 'FN' for False Negative
+    comment: Optional[str] = None
 
 class FeedbackItem(BaseModel):
     camera_index: int
     reviewer_comment: str
-    bounding_boxes_missed: List[BoundingBoxMissed]
-    anomalies_detected: int
-    anomalies_missed: int
+    bounding_boxes: List[BoundingBoxData]  # Single list for both FP and FN
+    false_positives: int
+    false_negatives: int
 
 class SubmitFeedbackRequest(BaseModel):
     inspection_id: int
@@ -780,7 +856,7 @@ class SubmitFeedbackRequest(BaseModel):
 
 @app.post("/submit")
 async def submit_feedback(request: SubmitFeedbackRequest):
-    """Handles submission of reviewer feedback."""
+    """Handles submission of reviewer feedback, including false positives and false negatives in a single table."""
     try:
         logger.info(f"Received feedback submission for inspection ID {request.inspection_id} by reviewer {request.reviewer_id}")
 
@@ -798,23 +874,23 @@ async def submit_feedback(request: SubmitFeedbackRequest):
             logger.warning(f"Reviewer ID {request.reviewer_id} not found.")
             raise HTTPException(status_code=404, detail="Reviewer ID not found")
 
-        # Insert feedback and missed bounding boxes
+        # Insert feedback, false positives, and false negatives
         for feedback in request.feedback:
             logger.info(f"Inserting feedback for camera {feedback.camera_index} with comment: {feedback.reviewer_comment}")
             
             cursor.execute(
                 "INSERT INTO Reviewer_Feedback (inspection_id, camera_index, reviewer_id, reviewer_comment, Anomalies_found, Anomalies_missed) VALUES (?, ?, ?, ?, ?, ?)",
-                (request.inspection_id, feedback.camera_index, request.reviewer_id, feedback.reviewer_comment, feedback.anomalies_detected, feedback.anomalies_missed)
+                (request.inspection_id, feedback.camera_index, request.reviewer_id, feedback.reviewer_comment, feedback.false_positives, feedback.false_negatives)
             )
             feedback_id = cursor.lastrowid
             logger.info(f"Inserted feedback with ID {feedback_id} for camera {feedback.camera_index}")
 
-            for bbox in feedback.bounding_boxes_missed:
-                logger.info(f"Inserting missed bounding box for feedback ID {feedback_id}: ({bbox.x}, {bbox.y}, {bbox.x+bbox.width}, {bbox.y+bbox.height})")
-
+            # Insert False Annotations (FP and FN)
+            for bbox in feedback.bounding_boxes:
+                logger.info(f"Inserting {bbox.type} for camera {feedback.camera_index}: {bbox}")
                 cursor.execute(
-                    "INSERT INTO BoundingBox_Missed (feedback_id, x_min, y_min, x_max, y_max) VALUES (?, ?, ?, ?, ?)",
-                    (feedback_id, bbox.x, bbox.y, bbox.x+bbox.width, bbox.y+bbox.height)
+                    "INSERT INTO False_Annotations (inspection_id, camera_index, x_min, y_min, width, height, type, comment) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (request.inspection_id, feedback.camera_index, bbox.x, bbox.y, bbox.width, bbox.height, bbox.type, bbox.comment)
                 )
 
         conn.commit()
@@ -832,6 +908,7 @@ async def submit_feedback(request: SubmitFeedbackRequest):
     finally:
         conn.close()
         logger.info("Database connection closed.")
+
 
 
 
@@ -919,13 +996,301 @@ def get_history(
 
 #Inspection Details for a session id
 
-DB_PATH = "inspection_system_new4.db"
+# DB_PATH = "inspection_system_new5.db"
+
+# class SessionRequest(BaseModel):
+#     session_id: int
+
+# def get_inspections(session_id: int):
+#     """Fetch inspection details including images, timestamp, user_id, bounding boxes, and reviewer feedback."""
+#     conn = sqlite3.connect(DB_PATH)
+#     cursor = conn.cursor()
+    
+#     # Get user_id from Session table
+#     cursor.execute("SELECT user_id FROM Session WHERE session_id = ?", (session_id,))
+#     session_data = cursor.fetchone()
+#     user_id = session_data[0] if session_data else None
+    
+#     cursor.execute("""
+#         SELECT inspection_id, inspection_timestamp, image_path1, image_path2 
+#         FROM Inspection 
+#         WHERE session_id = ?
+#     """, (session_id,))
+    
+#     inspections = []
+#     for row in cursor.fetchall():
+#         inspection_id, timestamp, img_path1, img_path2 = row
+        
+#         def encode_image(img_path):
+#             try:
+#                 with open(img_path, "rb") as img_file:
+#                     return base64.b64encode(img_file.read()).decode('utf-8')
+#             except Exception:
+#                 return None  # Handle missing images gracefully
+        
+#         cursor.execute("SELECT bbox_id, camera_index, x_min, y_min, x_max, y_max, confidence FROM BoundingBox_AI WHERE inspection_id = ?", (inspection_id,))
+#         bounding_boxes_ai = [
+#             {
+#                 "bbox_id": bbox[0],
+#                 "camera_index": bbox[1],
+#                 "x": bbox[2],
+#                 "y": bbox[3],
+#                 "width": bbox[4] - bbox[2],
+#                 "height": bbox[5] - bbox[3],
+#                 "confidence": bbox[6],
+#                 "label": "AI detected"
+#             }
+#             for bbox in cursor.fetchall()
+#         ]
+        
+#         cursor.execute("""
+#             SELECT bm.bbox_id, bm.feedback_id, rf.camera_index, bm.x_min, bm.y_min, bm.x_max, bm.y_max 
+#             FROM BoundingBox_Missed bm 
+#             JOIN Reviewer_Feedback rf ON bm.feedback_id = rf.feedback_id 
+#             WHERE rf.inspection_id = ?
+#         """, (inspection_id,))
+#         missed_bounding_boxes = [
+#             {
+#                 "bbox_id": bbox[0],
+#                 "feedback_id": bbox[1],
+#                 "camera_index": bbox[2],
+#                 "x": bbox[3],
+#                 "y": bbox[4],
+#                 "width": bbox[5] - bbox[3],
+#                 "height": bbox[6] - bbox[4],
+#                 "label": "Missed by AI"
+#             }
+#             for bbox in cursor.fetchall()
+#         ]
+        
+#         cursor.execute("""
+#             SELECT feedback_id, reviewer_comment, Anomalies_found, Anomalies_missed
+#             FROM Reviewer_Feedback 
+#             WHERE inspection_id = ?
+#         """, (inspection_id,))
+#         reviewer_feedback = cursor.fetchone()
+#         feedback_data = {
+#             "feedback_id": reviewer_feedback[0],
+#             "reviewer_comment": reviewer_feedback[1],
+#             "Anomalies_found": reviewer_feedback[2],
+#             "Anomalies_missed": reviewer_feedback[3]
+#         } if reviewer_feedback else None
+        
+#         inspections.append({
+#             "inspection_id": inspection_id,
+#             "timestamp": timestamp,
+#             "user_id": user_id,
+#             "image1": encode_image(img_path1),
+#             "image2": encode_image(img_path2),
+#             "bounding_boxes_ai": bounding_boxes_ai,
+#             "total_detections": len(bounding_boxes_ai),
+#             "missed_bounding_boxes": missed_bounding_boxes,
+#             "reviewer_feedback": feedback_data
+#         })
+    
+#     conn.close()
+#     return inspections
+
+DB_PATH = "inspection_system_new5.db"
 
 class SessionRequest(BaseModel):
     session_id: int
 
+# def get_inspections(session_id: int):
+#     """Fetch inspection details including images, timestamp, user_id, AI bounding boxes, false annotations, and reviewer feedback."""
+#     conn = sqlite3.connect(DB_PATH)
+#     cursor = conn.cursor()
+    
+#     # Get user_id from Session table
+#     cursor.execute("SELECT user_id FROM Session WHERE session_id = ?", (session_id,))
+#     session_data = cursor.fetchone()
+#     user_id = session_data[0] if session_data else None
+    
+#     cursor.execute("""
+#         SELECT inspection_id, inspection_timestamp, image_path1, image_path2 
+#         FROM Inspection 
+#         WHERE session_id = ?
+#     """, (session_id,))
+    
+#     inspections = []
+#     for row in cursor.fetchall():
+#         inspection_id, timestamp, img_path1, img_path2 = row
+        
+#         def encode_image(img_path):
+#             try:
+#                 with open(img_path, "rb") as img_file:
+#                     return base64.b64encode(img_file.read()).decode('utf-8')
+#             except Exception:
+#                 return None  # Handle missing images gracefully
+        
+#         # AI-detected bounding boxes
+#         cursor.execute("""
+#             SELECT bbox_id, camera_index, x_min, y_min, x_max, y_max, confidence 
+#             FROM BoundingBox_AI 
+#             WHERE inspection_id = ?
+#         """, (inspection_id,))
+#         bounding_boxes_ai = [
+#             {
+#                 "bbox_id": bbox[0],
+#                 "camera_index": bbox[1],
+#                 "x": bbox[2],
+#                 "y": bbox[3],
+#                 "width": bbox[4] - bbox[2],
+#                 "height": bbox[5] - bbox[3],
+#                 "confidence": bbox[6],
+#                 "label": "AI detected"
+#             }
+#             for bbox in cursor.fetchall()
+#         ]
+        
+#         # False Positives & False Negatives from `False_Annotations`
+#         cursor.execute("""
+#             SELECT fa_id, camera_index, x_min, y_min, width, height, type, comment
+#             FROM False_Annotations 
+#             WHERE inspection_id = ?
+#         """, (inspection_id,))
+        
+#         false_annotations = [
+#             {
+#                 "fa_id": row[0],
+#                 "camera_index": row[1], 
+#                 "x": row[2],
+#                 "y": row[3],
+#                 "width": row[4],
+#                 "height": row[5],
+#                 "type": row[6],  # 'FP' or 'FN'
+#                 "comment": row[7]
+#             }
+#             for row in cursor.fetchall()
+#         ]
+
+#         # Reviewer feedback
+#         cursor.execute("""
+#             SELECT feedback_id, reviewer_comment, Anomalies_found, Anomalies_missed
+#             FROM Reviewer_Feedback 
+#             WHERE inspection_id = ?
+#         """, (inspection_id,))
+#         reviewer_feedback = cursor.fetchone()
+#         feedback_data = {
+#             "feedback_id": reviewer_feedback[0],
+#             "reviewer_comment": reviewer_feedback[1],
+#             "Anomalies_found": reviewer_feedback[2],
+#             "Anomalies_missed": reviewer_feedback[3]
+#         } if reviewer_feedback else None
+        
+#         inspections.append({
+#             "inspection_id": inspection_id,
+#             "timestamp": timestamp,
+#             "user_id": user_id,
+#             "image1": encode_image(img_path1),
+#             "image2": encode_image(img_path2),
+#             "bounding_boxes_ai": bounding_boxes_ai,
+#             "total_detections": len(bounding_boxes_ai),
+#             "false_annotations": false_annotations,  # Includes both FP & FN
+#             "reviewer_feedback": feedback_data
+#         })
+    
+#     conn.close()
+#     return inspections
+
+
+
+# def get_inspections(session_id: int):
+#     """Fetch inspection details including images, timestamp, user_id, AI bounding boxes, false annotations, and reviewer feedback."""
+#     conn = sqlite3.connect(DB_PATH)
+#     cursor = conn.cursor()
+    
+#     # Get user_id from Session table
+#     cursor.execute("SELECT user_id FROM Session WHERE session_id = ?", (session_id,))
+#     session_data = cursor.fetchone()
+#     user_id = session_data[0] if session_data else None
+    
+#     cursor.execute("""
+#         SELECT inspection_id, inspection_timestamp, image_path1, image_path2 
+#         FROM Inspection 
+#         WHERE session_id = ?
+#     """, (session_id,))
+    
+#     inspections = []
+#     for row in cursor.fetchall():
+#         inspection_id, timestamp, img_path1, img_path2 = row
+        
+#         def encode_image(img_path):
+#             try:
+#                 with open(img_path, "rb") as img_file:
+#                     return base64.b64encode(img_file.read()).decode('utf-8')
+#             except Exception:
+#                 return None  # Handle missing images gracefully
+        
+#         # AI-detected bounding boxes
+#         cursor.execute("""
+#             SELECT bbox_id, camera_index, x_min, y_min, x_max, y_max, confidence 
+#             FROM BoundingBox_AI 
+#             WHERE inspection_id = ?
+#         """, (inspection_id,))
+#         bounding_boxes_ai = [
+#             {
+#                 "bbox_id": bbox[0],
+#                 "camera_index": bbox[1],
+#                 "x": bbox[2],
+#                 "y": bbox[3],
+#                 "width": bbox[4] - bbox[2],
+#                 "height": bbox[5] - bbox[3],
+#                 "confidence": bbox[6],
+#                 "label": "AI detected"
+#             }
+#             for bbox in cursor.fetchall()
+#         ]
+        
+#         # False Positives & False Negatives from `False_Annotations`
+#         cursor.execute("""
+#             SELECT camera_index, type
+#             FROM False_Annotations 
+#             WHERE inspection_id = ?
+#         """, (inspection_id,))
+        
+#         false_counts = {}  # Dictionary to store FP & FN counts per camera
+
+#         for camera_index, annotation_type in cursor.fetchall():
+#             if camera_index not in false_counts:
+#                 false_counts[camera_index] = {"false_positives": 0, "false_negatives": 0}
+            
+#             if annotation_type == "FP":
+#                 false_counts[camera_index]["false_positives"] += 1
+#             elif annotation_type == "FN":
+#                 false_counts[camera_index]["false_negatives"] += 1
+
+#         # Reviewer feedback
+#         cursor.execute("""
+#             SELECT feedback_id, reviewer_comment, Anomalies_found, Anomalies_missed
+#             FROM Reviewer_Feedback 
+#             WHERE inspection_id = ?
+#         """, (inspection_id,))
+#         reviewer_feedback = cursor.fetchone()
+#         feedback_data = {
+#             "feedback_id": reviewer_feedback[0],
+#             "reviewer_comment": reviewer_feedback[1],
+#             "false_positives": reviewer_feedback[2],
+#             "false_negatives": reviewer_feedback[3]
+#         } if reviewer_feedback else None
+        
+#         inspections.append({
+#             "inspection_id": inspection_id,
+#             "timestamp": timestamp,
+#             "user_id": user_id,
+#             "image1": encode_image(img_path1),
+#             "image2": encode_image(img_path2),
+#             "bounding_boxes_ai": bounding_boxes_ai,
+#             "total_detections": len(bounding_boxes_ai),
+#             "false_counts_per_camera": false_counts,  # FP & FN counts per camera
+#             "reviewer_feedback": feedback_data
+#         })
+    
+#     conn.close()
+#     return inspections
+
 def get_inspections(session_id: int):
-    """Fetch inspection details including images, timestamp, user_id, bounding boxes, and reviewer feedback."""
+    """Fetch inspection details including images, AI bounding boxes, false positives/negatives, and reviewer feedback."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
@@ -951,7 +1316,12 @@ def get_inspections(session_id: int):
             except Exception:
                 return None  # Handle missing images gracefully
         
-        cursor.execute("SELECT bbox_id, camera_index, x_min, y_min, x_max, y_max, confidence FROM BoundingBox_AI WHERE inspection_id = ?", (inspection_id,))
+        # Fetch AI-detected bounding boxes
+        cursor.execute("""
+            SELECT bbox_id, camera_index, x_min, y_min, x_max, y_max, confidence 
+            FROM BoundingBox_AI 
+            WHERE inspection_id = ?
+        """, (inspection_id,))
         bounding_boxes_ai = [
             {
                 "bbox_id": bbox[0],
@@ -966,26 +1336,35 @@ def get_inspections(session_id: int):
             for bbox in cursor.fetchall()
         ]
         
+        # Fetch False Positives & False Negatives bounding boxes
         cursor.execute("""
-            SELECT bm.bbox_id, bm.feedback_id, rf.camera_index, bm.x_min, bm.y_min, bm.x_max, bm.y_max 
-            FROM BoundingBox_Missed bm 
-            JOIN Reviewer_Feedback rf ON bm.feedback_id = rf.feedback_id 
-            WHERE rf.inspection_id = ?
+            SELECT fa_id, camera_index, x_min, y_min, width, height, type 
+            FROM False_Annotations 
+            WHERE inspection_id = ?
         """, (inspection_id,))
-        missed_bounding_boxes = [
-            {
-                "bbox_id": bbox[0],
-                "feedback_id": bbox[1],
-                "camera_index": bbox[2],
-                "x": bbox[3],
-                "y": bbox[4],
-                "width": bbox[5] - bbox[3],
-                "height": bbox[6] - bbox[4],
-                "label": "Missed by AI"
-            }
-            for bbox in cursor.fetchall()
-        ]
         
+        false_positives_bboxes = {0: [], 1: []}
+        false_negatives_bboxes = {0: [], 1: []}
+        false_counts = {0: {"false_positives": 0, "false_negatives": 0}, 1: {"false_positives": 0, "false_negatives": 0}}
+        
+        for bbox in cursor.fetchall():
+            bbox_data = {
+                "bbox_id": bbox[0],
+                "camera_index": bbox[1],
+                "x": bbox[2],
+                "y": bbox[3],
+                "width": bbox[4],
+                "height": bbox[5],
+                "label": "False Positive" if bbox[6] == "FP" else "False Negative"
+            }
+            if bbox[6] == "FP":
+                false_positives_bboxes[bbox[1]].append(bbox_data)
+                false_counts[bbox[1]]["false_positives"] += 1
+            elif bbox[6] == "FN":
+                false_negatives_bboxes[bbox[1]].append(bbox_data)
+                false_counts[bbox[1]]["false_negatives"] += 1
+        
+        # Reviewer feedback
         cursor.execute("""
             SELECT feedback_id, reviewer_comment, Anomalies_found, Anomalies_missed
             FROM Reviewer_Feedback 
@@ -995,8 +1374,8 @@ def get_inspections(session_id: int):
         feedback_data = {
             "feedback_id": reviewer_feedback[0],
             "reviewer_comment": reviewer_feedback[1],
-            "Anomalies_found": reviewer_feedback[2],
-            "Anomalies_missed": reviewer_feedback[3]
+            "false_positives": reviewer_feedback[2],
+            "false_negatives": reviewer_feedback[3]
         } if reviewer_feedback else None
         
         inspections.append({
@@ -1006,13 +1385,18 @@ def get_inspections(session_id: int):
             "image1": encode_image(img_path1),
             "image2": encode_image(img_path2),
             "bounding_boxes_ai": bounding_boxes_ai,
+            "false_positives_bboxes": false_positives_bboxes,
+            "false_negatives_bboxes": false_negatives_bboxes,
+            "false_counts_per_camera": false_counts,
             "total_detections": len(bounding_boxes_ai),
-            "missed_bounding_boxes": missed_bounding_boxes,
             "reviewer_feedback": feedback_data
         })
     
     conn.close()
     return inspections
+
+
+
 
 @app.post("/inspections")
 def get_inspections_by_session(request: SessionRequest):

@@ -247,10 +247,10 @@ def find_anomaly(reference_image_path, target_image_path, camid, roi, metric='co
     # roi = cv2.selectROI("Select ROI", reference_image_full, showCrosshair=True)
     # cv2.destroyWindow("Select ROI")
 
-    #check if camera is blocked
-    # if check_camera_blockage(reference_image_full, target_image_full):
-    #     print("Camera is blocked")
-    #     raise RuntimeError("Camera is blocked")
+    # check if camera is blocked
+    if check_camera_blockage(reference_image_full, target_image_full):
+        print("Camera is blocked")
+        raise RuntimeError("Camera is blocked")
 
 
 
