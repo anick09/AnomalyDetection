@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends, Response, WebSocket
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse
 import sqlite3
 import base64
 # import datetime
@@ -1436,3 +1437,122 @@ async def logout(request: LogoutRequest):
         # conn.close()
         # logger.info("Database connection closed.")
         pass
+
+
+
+# Paths to the required directories and files
+IMAGE_DIRECTORY = "full_image_setROI"  # Change this to the actual directory path
+ROI_JSON_PATH = "roi_data.json"
+THRESHOLD_JSON_PATH = "threshold.json"
+
+def get_images_from_directory(directory):
+    """Finds and sorts two images from the given directory."""
+    try:
+        if not os.path.exists(directory):
+            raise FileNotFoundError(f"Directory not found: {directory}")
+        
+        # List all files, filter for images, and sort them
+        image_files = sorted(
+            [f for f in os.listdir(directory) if f.lower().endswith((".png", ".jpg", ".jpeg"))]
+        )
+        
+        if len(image_files) < 2:
+            raise ValueError("Not enough images found in the directory (need at least 2).")
+
+        return os.path.join(directory, image_files[0]), os.path.join(directory, image_files[1])
+
+    except Exception as e:
+        return str(e), None  # Return an error string if something goes wrong
+
+def encode_image(image_path):
+    """Converts an image to base64 encoding."""
+    try:
+        if not os.path.exists(image_path):
+            raise FileNotFoundError(f"File not found: {image_path}")
+        with open(image_path, "rb") as image_file:
+            return base64.b64encode(image_file.read()).decode("utf-8")
+    except Exception as e:
+        return str(e)
+
+def read_json(file_path):
+    """Reads JSON file and handles errors."""
+    try:
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"File not found: {file_path}")
+        with open(file_path, "r") as json_file:
+            return json.load(json_file)
+    except json.JSONDecodeError:
+        return {"error": f"Invalid JSON format in {file_path}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/get_roi_data")
+def get_data():
+    errors = []
+
+    # Get the two images from the directory
+    # image1_path, image2_path = get_images_from_directory(IMAGE_DIRECTORY)
+    
+    # if isinstance(image1_path, str) and image2_path is None:
+    #     errors.append(image1_path)  # If an error occurred, add it to errors
+
+    # # Read and encode images
+    # image1_base64 = encode_image(image1_path) if image1_path else None
+    # if "File not found" in str(image1_base64):
+    #     errors.append(image1_base64)
+
+    # image2_base64 = encode_image(image2_path) if image2_path else None
+    # if "File not found" in str(image2_base64):
+    #     errors.append(image2_base64)
+
+    move_old_images()  # Move old images before saving new ones
+
+        # Capture images from cameras 0 and 2
+    frame1 = capture_image(0)
+    frame2 = capture_image(2)
+
+    if frame1 is None or frame2 is None:
+        raise ValueError("Failed to capture images from one or both cameras.")
+
+    # Encode images in base64 for UI display
+    _, im_arr1 = cv2.imencode('.jpg', frame1)
+    im1_b64 = base64.b64encode(im_arr1.tobytes()).decode("utf-8")
+
+    _, im_arr2 = cv2.imencode('.jpg', frame2)
+    im2_b64 = base64.b64encode(im_arr2.tobytes()).decode("utf-8")
+
+    # Save images with timestamp
+    timestamp = datetime.now(swiss_tz).strftime('%Y-%m-%d_%H-%M-%S')
+    img1_path = os.path.join(IMAGE_FOLDER, f"0_{timestamp}.jpg")
+    img2_path = os.path.join(IMAGE_FOLDER, f"2_{timestamp}.jpg")
+
+    cv2.imwrite(img1_path, frame1)
+    cv2.imwrite(img2_path, frame2)
+
+    logger.info(f"Images saved successfully: {img1_path}, {img2_path}")
+
+
+    # Read JSON data
+    roi_data = read_json(ROI_JSON_PATH)
+    if "error" in roi_data:
+        errors.append(roi_data["error"])
+
+    threshold_data = read_json(THRESHOLD_JSON_PATH)
+    if "error" in threshold_data:
+        errors.append(threshold_data["error"])
+
+    # If there are errors, return them
+    if errors:
+        return JSONResponse(content={"errors": errors}, status_code=500)
+
+    # Construct response
+    response_data = {
+        "images": {
+            "image1": im1_b64,
+            "image2": im2_b64
+        },
+        "roi": roi_data,
+        "threshold": threshold_data
+    }
+
+    return response_data

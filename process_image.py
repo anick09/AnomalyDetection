@@ -166,7 +166,7 @@ def get_resnet_anomalies(reference_image, target_image, model, ssim_boxes, metri
     for score in scores:
         print(score)
 
-    anomaly_windows = [positions[i] for i, score in enumerate(scores) if score < 0.7]
+    anomaly_windows = [positions[i] for i, score in enumerate(scores) if score < threshold]
     return anomaly_windows
 
 def get_ssim_bounding_boxes(reference_roi, target_roi):
@@ -270,8 +270,8 @@ def find_anomaly(reference_image_path, target_image_path, camid, roi, metric='co
     ssim_end_time=time.time()
 
     model_load_start_time=time.time()
-    model = resnet50(pretrained=True).to(device)
-    # model = resnet18(pretrained=True).to(device)
+    # model = resnet50(pretrained=True).to(device)
+    model = resnet18(pretrained=True).to(device)
     # model = resnet101(pretrained=True).to(device)
     # model = resnet34(pretrained=True).to(device)
     # model = resnet152(pretrained=True).to(device)
