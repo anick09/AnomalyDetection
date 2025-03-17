@@ -17,108 +17,117 @@ import logging
 import os
 from datetime import datetime
 import pytz 
+import cv2
+import numpy as np
+import logging
+import os
+from datetime import datetime
+import pytz 
+
+# Define log directory
+LOG_DIR = "process_image_logs"
+
+# Ensure the log directory exists
+if not os.path.exists(LOG_DIR):
+    os.makedirs(LOG_DIR)
+
+# Timezone setup
+swiss_tz = pytz.timezone('Europe/Zurich')
+
+# Configure logging
+# Unique log file for process_image.py
+log_filename = f'{LOG_DIR}/process_image_{datetime.now(pytz.timezone("Europe/Zurich")).strftime("%Y%m%d")}.log'
+
+# Configure a separate logger for process_image.py
+logger = logging.getLogger("process_image")  # <== Named Logger
+logger.setLevel(logging.INFO)
+
+# Prevent duplicate handlers if script is re-imported
+if not logger.hasHandlers():
+    file_handler = logging.FileHandler(log_filename)
+    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    logger.addHandler(file_handler)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    logger.addHandler(console_handler)
+
+logger.info("Logging initialized in process_image_logs")
+
+
 
 warnings.filterwarnings("ignore", category=UserWarning, module="torchvision")
 
-# Add at top of file after imports
-if not os.path.exists("logs"):
-    os.makedirs("logs")
-
-swiss_tz = pytz.timezone('Europe/Zurich')
-
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(f'logs/app_{datetime.now(swiss_tz).strftime("%Y%m%d")}.log'),
-        logging.StreamHandler()
-    ]
-)
-
-logger = logging.getLogger(__name__)
 
 
 
-def preprocess_image(image, device):
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    ])
-    return transform(image).unsqueeze(0).to(device)
+# def preprocess_image(image, device):
+#     transform = transforms.Compose([
+#         transforms.ToTensor(),
+#         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+#     ])
+#     return transform(image).unsqueeze(0).to(device)
 
-def check_camera_blockage(reference_image, current_image, threshold=0.75):
-    ref_gray = cv2.cvtColor(reference_image, cv2.COLOR_BGR2GRAY)
-    curr_gray = cv2.cvtColor(current_image, cv2.COLOR_BGR2GRAY)
-    score, _ = structural_similarity(ref_gray, curr_gray, full=True)
-    print(f"SSIM Score: {score}")
-    return score < threshold  # True means possible blockage
+# def check_camera_blockage(reference_image, current_image, threshold=0.75):
+#     ref_gray = cv2.cvtColor(reference_image, cv2.COLOR_BGR2GRAY)
+#     curr_gray = cv2.cvtColor(current_image, cv2.COLOR_BGR2GRAY)
+#     score, _ = structural_similarity(ref_gray, curr_gray, full=True)
+#     print(f"SSIM Score: {score}")
+#     return score < threshold  # True means possible blockage
 
-import cv2
-import numpy as np
 
-def is_black_or_white_screen(image, std_threshold=10, mean_threshold=50):
-    if image is None:
-        raise ValueError("Image is empty or not loaded properly")
 
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)  # Convert to grayscale
-    mean_pixel = np.mean(gray)  # Average intensity
-    std_pixel = np.std(gray)  # Standard deviation of intensity
+# def is_black_or_white_screen(image, std_threshold=10, mean_threshold=50):
+#     if image is None:
+#         raise ValueError("Image is empty or not loaded properly")
+
+#     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)  # Convert to grayscale
+#     mean_pixel = np.mean(gray)  # Average intensity
+#     std_pixel = np.std(gray)  # Standard deviation of intensity
     
-    print(f"Mean: {mean_pixel:.2f}, Std Dev: {std_pixel:.2f}")
+#     print(f"Mean: {mean_pixel:.2f}, Std Dev: {std_pixel:.2f}")
 
-    # Black screen: Low mean and low variation
-    if mean_pixel < mean_threshold and std_pixel < std_threshold:
-        return True  # Likely a black screen
+#     # Black screen: Low mean and low variation
+#     if mean_pixel < mean_threshold and std_pixel < std_threshold:
+#         return True  # Likely a black screen
 
-    # White screen: High mean and low variation
-    if mean_pixel > (255 - mean_threshold) and std_pixel < std_threshold:
-        return True  # Likely a white screen
+#     # White screen: High mean and low variation
+#     if mean_pixel > (255 - mean_threshold) and std_pixel < std_threshold:
+#         return True  # Likely a white screen
 
-    return False
+#     return False
 
 
 
-def extract_embeddings(model, image, boxes, device):
-    # img=image.detach().cpu().numpy()
-    # img=img[0].transpose(1,2,0)
-    # print(type(img))
-    # cv2.imshow("image", img)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
+# def extract_embeddings(model, image, boxes, device):
 
-    # print(boxes)
+#     embeddings, positions = [], []
+#     for (x, y, w, h) in boxes:
+#         window = image[:, :, y:y+h, x:x+w]
+#         img=window.detach().cpu().numpy()
+#         img=img[0].transpose(1,2,0)
+#         with torch.no_grad():
+#             embedding = model(window).squeeze().cpu().numpy()
+#         embeddings.append(embedding)
+#         positions.append((x, y, w, h))
 
-    embeddings, positions = [], []
-    for (x, y, w, h) in boxes:
-        window = image[:, :, y:y+h, x:x+w]
-        img=window.detach().cpu().numpy()
-        img=img[0].transpose(1,2,0)
-        # cv2.imshow("window", img)
-        # cv2.waitKey(0)
-        # cv2.destroyAllWindows()
-        with torch.no_grad():
-            embedding = model(window).squeeze().cpu().numpy()
-        embeddings.append(embedding)
-        positions.append((x, y, w, h))
+#     print(f"embeddings extracted for {len(embeddings)} boxes")
+#     return np.array(embeddings), positions
 
-    print(f"embeddings extracted for {len(embeddings)} boxes")
-    return np.array(embeddings), positions
-
-def compute_similarity_scores(ref_embeddings, tgt_embeddings, metric, cov_matrix=None):
-    if metric == 'cosine':
-        return cosine_similarity(ref_embeddings, tgt_embeddings).diagonal()
-    elif metric == 'euclidean':
-        return np.array([euclidean(ref, tgt) for ref, tgt in zip(ref_embeddings, tgt_embeddings)])
-    elif metric == 'mahalanobis' and cov_matrix is not None:
-        inv_cov_matrix = np.linalg.inv(cov_matrix)
-        return np.array([mahalanobis(ref, tgt, inv_cov_matrix) for ref, tgt in zip(ref_embeddings, tgt_embeddings)])
-    elif metric == 'kl_divergence':
-        return np.array([entropy(ref, tgt) for ref, tgt in zip(ref_embeddings, tgt_embeddings)])
-    elif metric == 'wasserstein':
-        return np.array([wasserstein_distance(ref, tgt) for ref, tgt in zip(ref_embeddings, tgt_embeddings)])
-    else:
-        raise ValueError("Unsupported similarity metric")
+# def compute_similarity_scores(ref_embeddings, tgt_embeddings, metric, cov_matrix=None):
+#     if metric == 'cosine':
+#         return cosine_similarity(ref_embeddings, tgt_embeddings).diagonal()
+#     elif metric == 'euclidean':
+#         return np.array([euclidean(ref, tgt) for ref, tgt in zip(ref_embeddings, tgt_embeddings)])
+#     elif metric == 'mahalanobis' and cov_matrix is not None:
+#         inv_cov_matrix = np.linalg.inv(cov_matrix)
+#         return np.array([mahalanobis(ref, tgt, inv_cov_matrix) for ref, tgt in zip(ref_embeddings, tgt_embeddings)])
+#     elif metric == 'kl_divergence':
+#         return np.array([entropy(ref, tgt) for ref, tgt in zip(ref_embeddings, tgt_embeddings)])
+#     elif metric == 'wasserstein':
+#         return np.array([wasserstein_distance(ref, tgt) for ref, tgt in zip(ref_embeddings, tgt_embeddings)])
+#     else:
+#         raise ValueError("Unsupported similarity metric")
 
 def get_dynamic_threshold(scores, method='percentile', percentile=5):
     if method == 'std_dev':
@@ -183,120 +192,188 @@ def get_ssim_bounding_boxes(reference_roi, target_roi):
     print(f"SSIM Boxes Count : {len(ssim_boxes)}")
     return ssim_boxes
 
-def visualize_final_anomalies(target_img_path, final_boxes,camid):
-    target_full_img= cv2.imread(target_img_path)
-    if(camid==0):
-        target_full_img= cv2.imread("/home/sr/jnjLineclearing/fastapi-sqlite-jnjbackend/full_image_inspection/26_0.jpg")
-    else:
-        target_full_img= cv2.imread("/home/sr/jnjLineclearing/fastapi-sqlite-jnjbackend/full_image_inspection/26q_2.jpg")
+# def visualize_final_anomalies(target_img_path, final_boxes,camid):
+#     target_full_img= cv2.imread(target_img_path)
+#     if(camid==0):
+#         target_full_img= cv2.imread("/home/sr/jnjLineclearing/fastapi-sqlite-jnjbackend/full_image_inspection/26_0.jpg")
+#     else:
+#         target_full_img= cv2.imread("/home/sr/jnjLineclearing/fastapi-sqlite-jnjbackend/full_image_inspection/26q_2.jpg")
 
-    roi_data = {}
-    import os,json
-    if os.path.exists("roi_data.json"):
-        with open("roi_data.json", "r") as f:
-            roi_data = json.load(f)
+#     roi_data = {}
+#     import os,json
+#     if os.path.exists("roi_data.json"):
+#         with open("roi_data.json", "r") as f:
+#             roi_data = json.load(f)
     
-    #  roi_data is in format
-    # {
-    # "0": {
-    #     "x": 51,
-    #     "y": 141,
-    #     "width": 206,
-    #     "height": 327
-    # },
-    # "2": {
-    #     "x": 100,
-    #     "y": 50,
-    #     "width": 400,
-    #     "height": 350
-    # }
-    # }
-    # Now map the bounding_boxes
-    # bounding_boxes1 = [(x+roi_data["0"]["x"], y+roi_data["0"]["y"], w, h) for (x, y, w, h) in bounding_boxes1]
-    # bounding_boxes2 = [(x+roi_data["2"]["x"], y+roi_data["2"]["y"], w, h) for (x, y, w, h) in bounding_boxes2]
-    # target_img = cv2.imread()
 
-    #based on this make changes on the final_boxes
-    final_boxes = [(x+roi_data[str(camid)]["x"], y+roi_data[str(camid)]["y"], w, h) for (x, y, w, h) in final_boxes]
+#     #based on this make changes on the final_boxes
+#     final_boxes = [(x+roi_data[str(camid)]["x"], y+roi_data[str(camid)]["y"], w, h) for (x, y, w, h) in final_boxes]
 
 
 
-    for (x, y, w, h) in final_boxes:
-        cv2.rectangle(target_full_img, (x, y), (x + w, y + h), (0, 255, 0), 2)
-    if(target_full_img):
-        cv2.imshow("Final Anomalies", target_full_img)
-        cv2.imwrite(f"final_anomalies_filtered_{camid}.jpg", target_full_img)
-        cv2.waitKey(0)
-    cv2.destroyAllWindows()
-    print(f"final Boxes Count : {len(final_boxes)}")
+#     for (x, y, w, h) in final_boxes:
+#         cv2.rectangle(target_full_img, (x, y), (x + w, y + h), (0, 255, 0), 2)
+#     if(target_full_img):
+#         cv2.imshow("Final Anomalies", target_full_img)
+#         cv2.imwrite(f"final_anomalies_filtered_{camid}.jpg", target_full_img)
+#         cv2.waitKey(0)
+#     cv2.destroyAllWindows()
+#     print(f"final Boxes Count : {len(final_boxes)}")
+
+# def find_anomaly(reference_image_path, target_image_path, camid, roi, metric='cosine', threshold_method='fixed'):
+#     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+#     reference_image_full = cv2.imread(reference_image_path)
+#     target_image_full = cv2.imread(target_image_path)
+
+#     # check if camera is blocked
+#     if check_camera_blockage(reference_image_full, target_image_full):
+#         print("Camera is blocked or scene changed")
+#         raise RuntimeError("Camera is blocked or scene changed")
+
+
+
+#     x, y, w, h = roi['x'], roi['y'], roi['width'], roi['height']
+    
+    
+#     ssim_start_time=time.time()
+
+#     ssim_boxes = get_ssim_bounding_boxes(reference_image_full, target_image_full)
+#     ssim_end_time=time.time()
+
+#     model_load_start_time=time.time()
+#     # model = resnet50(pretrained=True).to(device)
+#     model = resnet18(pretrained=True).to(device)
+#     # model = resnet101(pretrained=True).to(device)
+#     # model = resnet34(pretrained=True).to(device)
+#     # model = resnet152(pretrained=True).to(device)
+#     model = nn.Sequential(*list(model.children())[:-1])
+#     model.eval()
+#     model_load_end_time=time.time()
+
+#     pre_procc_start=time.time()    
+#     reference_image_tensor = preprocess_image(Image.fromarray(reference_image_full), device)
+#     target_image_tensor = preprocess_image(Image.fromarray(target_image_full), device)
+#     pre_procc_end=time.time()
+    
+#     resnet_embed_start_time=time.time()
+#     resnet_anomalies = get_resnet_anomalies(reference_image_tensor, target_image_tensor, model, ssim_boxes, metric, threshold_method, device)
+#     resnet_embed_end_time=time.time()
+    
+
+#     print(f"resnet50 time: {resnet_embed_end_time-resnet_embed_start_time:.2f} seconds")
+#     print(f"total_time : {(ssim_end_time-ssim_start_time)+(pre_procc_end-pre_procc_start)+(resnet_embed_end_time-resnet_embed_start_time):.2f} seconds")
+
+#     return resnet_anomalies
+
+
+def preprocess_image(image, device):
+    logger.info("Preprocessing image for ResNet model")
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
+    return transform(image).unsqueeze(0).to(device)
+
+def check_camera_blockage(reference_image, current_image, threshold=0.75):
+    logger.info("Checking for camera blockage using SSIM")
+    ref_gray = cv2.cvtColor(reference_image, cv2.COLOR_BGR2GRAY)
+    curr_gray = cv2.cvtColor(current_image, cv2.COLOR_BGR2GRAY)
+    score, _ = structural_similarity(ref_gray, curr_gray, full=True)
+    
+    logger.info(f"SSIM Score: {score:.4f} (Threshold: {threshold})")
+    return score < threshold
+
+def is_black_or_white_screen(image, std_threshold=10, mean_threshold=50):
+    if image is None:
+        logger.warning("Received an empty image for black/white screen detection")
+        raise ValueError("Image is empty or not loaded properly")
+
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    mean_pixel = np.mean(gray)
+    std_pixel = np.std(gray)
+
+    logger.info(f"Mean: {mean_pixel:.2f}, Std Dev: {std_pixel:.2f}")
+
+    if mean_pixel < mean_threshold and std_pixel < std_threshold:
+        logger.warning("Detected a black screen")
+        return True  
+    if mean_pixel > (255 - mean_threshold) and std_pixel < std_threshold:
+        logger.warning("Detected a white screen")
+        return True  
+
+    return False
+
+def extract_embeddings(model, image, boxes, device):
+    logger.info(f"Extracting embeddings for {len(boxes)} bounding boxes")
+    
+    embeddings, positions = [], []
+    for (x, y, w, h) in boxes:
+        window = image[:, :, y:y+h, x:x+w]
+        with torch.no_grad():
+            embedding = model(window).squeeze().cpu().numpy()
+        embeddings.append(embedding)
+        positions.append((x, y, w, h))
+
+    logger.info(f"Extracted embeddings for {len(embeddings)} regions")
+    return np.array(embeddings), positions
+
+def compute_similarity_scores(ref_embeddings, tgt_embeddings, metric, cov_matrix=None):
+    logger.info(f"Computing similarity scores using {metric} metric")
+    
+    if metric == 'cosine':
+        return cosine_similarity(ref_embeddings, tgt_embeddings).diagonal()
+    elif metric == 'euclidean':
+        return np.array([euclidean(ref, tgt) for ref, tgt in zip(ref_embeddings, tgt_embeddings)])
+    elif metric == 'mahalanobis' and cov_matrix is not None:
+        inv_cov_matrix = np.linalg.inv(cov_matrix)
+        return np.array([mahalanobis(ref, tgt, inv_cov_matrix) for ref, tgt in zip(ref_embeddings, tgt_embeddings)])
+    elif metric == 'kl_divergence':
+        return np.array([entropy(ref, tgt) for ref, tgt in zip(ref_embeddings, tgt_embeddings)])
+    elif metric == 'wasserstein':
+        return np.array([wasserstein_distance(ref, tgt) for ref, tgt in zip(ref_embeddings, tgt_embeddings)])
+    else:
+        logger.error(f"Unsupported similarity metric: {metric}")
+        raise ValueError("Unsupported similarity metric")
 
 def find_anomaly(reference_image_path, target_image_path, camid, roi, metric='cosine', threshold_method='fixed'):
+    logger.info(f"Starting anomaly detection for Camera {camid}")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # print(f"Using device: {device}")
-    
+
     reference_image_full = cv2.imread(reference_image_path)
-    # cv2.imshow("reference_image", reference_image_full)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
     target_image_full = cv2.imread(target_image_path)
-    # cv2.imshow("target_image", target_image_full)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
-    
-    # print("Select ROI and press ENTER")
-    # roi = cv2.selectROI("Select ROI", reference_image_full, showCrosshair=True)
-    # cv2.destroyWindow("Select ROI")
 
-    # check if camera is blocked
+    if reference_image_full is None or target_image_full is None:
+        logger.error("Error: One or both images could not be loaded")
+        raise ValueError("Error: One or both images could not be loaded")
+
     if check_camera_blockage(reference_image_full, target_image_full):
-        print("Camera is blocked")
-        raise RuntimeError("Camera is blocked")
+        logger.error("Camera is blocked or scene changed")
+        raise RuntimeError("Camera is blocked or scene changed")
 
-
-
-    x, y, w, h = roi['x'], roi['y'], roi['width'], roi['height']
-    
-    # reference_roi = reference_image_full[y:y+h, x:x+w]
-    # target_roi = target_image_full[y:y+h, x:x+w]
-    
-    ssim_start_time=time.time()
-
+    logger.info("Running SSIM-based bounding box extraction")
+    ssim_start_time = time.time()
     ssim_boxes = get_ssim_bounding_boxes(reference_image_full, target_image_full)
+    ssim_end_time = time.time()
+    logger.info(f"SSIM bounding box extraction took {ssim_end_time - ssim_start_time:.2f} seconds")
 
-    # for (bx, by, bw, bh) in ssim_boxes:
-    #     print(type(bx), type(x))
-
-    # ssim_boxes = [(x+bx, y+by, bw, bh) for (bx, by, bw, bh) in ssim_boxes]
-    ssim_end_time=time.time()
-
-    model_load_start_time=time.time()
-    # model = resnet50(pretrained=True).to(device)
+    logger.info(f"Loading ResNet model on {device}")
     model = resnet18(pretrained=True).to(device)
-    # model = resnet101(pretrained=True).to(device)
-    # model = resnet34(pretrained=True).to(device)
-    # model = resnet152(pretrained=True).to(device)
     model = nn.Sequential(*list(model.children())[:-1])
     model.eval()
-    model_load_end_time=time.time()
 
-    pre_procc_start=time.time()    
+    logger.info("Preprocessing images")
     reference_image_tensor = preprocess_image(Image.fromarray(reference_image_full), device)
     target_image_tensor = preprocess_image(Image.fromarray(target_image_full), device)
-    pre_procc_end=time.time()
-    
-    resnet_embed_start_time=time.time()
-    resnet_anomalies = get_resnet_anomalies(reference_image_tensor, target_image_tensor, model, ssim_boxes, metric, threshold_method, device)
-    resnet_embed_end_time=time.time()
-    # visualize_final_anomalies(target_image_path, resnet_anomalies,camid)
-    
 
-    print(f"resnet50 time: {resnet_embed_end_time-resnet_embed_start_time:.2f} seconds")
-    print(f"total_time : {(ssim_end_time-ssim_start_time)+(pre_procc_end-pre_procc_start)+(resnet_embed_end_time-resnet_embed_start_time):.2f} seconds")
+    logger.info("Extracting feature embeddings")
+    resnet_embed_start_time = time.time()
+    resnet_anomalies = get_resnet_anomalies(
+        reference_image_tensor, target_image_tensor, model, ssim_boxes, metric, threshold_method, device
+    )
+    resnet_embed_end_time = time.time()
+    logger.info(f"Feature extraction and anomaly detection took {resnet_embed_end_time - resnet_embed_start_time:.2f} seconds")
 
     return resnet_anomalies
 
-# if __name__ == "__main__":
-#     reference_image_path = "/home/sr/jnjLineclearing/JNJ_Lineclearing/notebooks/images/frame_1092.jpg"
-#     target_image_path = "/home/sr/jnjLineclearing/JNJ_Lineclearing/notebooks/images/frame_1122.jpg"
-    
-#     main(reference_image_path, target_image_path, metric='cosine', threshold_method='percentile')
+
