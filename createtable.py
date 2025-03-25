@@ -1,7 +1,15 @@
 import sqlite3
+import os
 
 def create_tables():
-    conn = sqlite3.connect("inspection_system_new4.db")  # Creates/opens a database file
+    db_file = "/data/inspection_system_new5.db"
+    
+    # Check if database file already exists
+    if os.path.exists(db_file):
+        print("Database already exists. Skipping table creation.")
+        return
+    
+    conn = sqlite3.connect(db_file)  # Creates/opens a database file
     cursor = conn.cursor()
     
     # Enable Foreign Key Constraints
@@ -78,16 +86,19 @@ def create_tables():
         );
     ''')
     
-    # BoundingBox_Missed Table
+    # False_Annotations Table
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS BoundingBox_Missed (
-            bbox_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            feedback_id INTEGER NOT NULL,
-            x_min FLOAT NOT NULL,
-            y_min FLOAT NOT NULL,
-            x_max FLOAT NOT NULL,
-            y_max FLOAT NOT NULL,
-            FOREIGN KEY (feedback_id) REFERENCES Reviewer_Feedback(feedback_id) ON DELETE CASCADE
+        CREATE TABLE IF NOT EXISTS False_Annotations (
+            fa_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            inspection_id INTEGER NOT NULL,
+            camera_index INTEGER NOT NULL,
+            x_min INTEGER NOT NULL,
+            y_min INTEGER NOT NULL,
+            width INTEGER NOT NULL,
+            height INTEGER NOT NULL,
+            type TEXT CHECK(type IN ('FP', 'FN')) NOT NULL, -- 'FP' for False Positive, 'FN' for False Negative
+            comment TEXT,
+            FOREIGN KEY (inspection_id) REFERENCES Inspection(inspection_id)
         );
     ''')
     
