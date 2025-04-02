@@ -10,15 +10,15 @@ import hashlib
 import sqlite3
 import requests
 
-INSPECTION_DB_PATH = "data/inspection_system_new5.db"
-LOGS_DIR = "data/jsonlogs"
-LOGS_DIR1 = "data/main_logs"
-LOGS_DIR2 = "data/process_image_logs"
+INSPECTION_DB_PATH = "/data/inspection_system_new5.db"
+LOGS_DIR = "/data/jsonlogs"
+LOGS_DIR1 = "/data/main_logs"
+LOGS_DIR2 = "/data/process_image_logs"
 os.makedirs(LOGS_DIR, exist_ok=True)
 
 
 # Initialize the database connection
-conn = sqlite3.connect('data/sync_service.db')
+conn = sqlite3.connect('/data/sync_service.db')
 cursor = conn.cursor()
 
 conn_inspection = sqlite3.connect(INSPECTION_DB_PATH)
@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS SyncHistory (
 conn.commit()
 
 def get_pending_cron_entry():
-    conn = sqlite3.connect("data/sync_service.db")
+    conn = sqlite3.connect("/data/sync_service.db")
     cursor = conn.cursor()
     
     cursor.execute("SELECT id, timestamp FROM cron_table WHERE status = 'pending' ORDER BY timestamp ASC LIMIT 1;")
@@ -56,7 +56,7 @@ def get_pending_cron_entry():
     return entry  # Returns (id, timestamp) or None
 
 def update_cron_status(cron_id, status):
-    conn = sqlite3.connect("data/sync_service.db")
+    conn = sqlite3.connect("/data/sync_service.db")
     cursor = conn.cursor()
     
     cursor.execute("UPDATE cron_table SET status = ? WHERE id = ?", (status, cron_id))
