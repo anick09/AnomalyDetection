@@ -5,8 +5,8 @@ import schedule
 import os
 
 # Initialize the database connection
-os.makedirs("data", exist_ok=True)
-conn = sqlite3.connect('data/sync_service.db')
+# os.makedirs("data", exist_ok=True)
+conn = sqlite3.connect('/data/sync_service.db')
 cursor = conn.cursor()
 
 # Create the cron_table if it doesn't exist
@@ -34,8 +34,8 @@ if __name__ == "__main__":
         # Schedule the cron job at 1 AM daily
         # schedule.every().day.at("15:17").do(populate_cron_table)
 
-        #schedule at every 20 seconds for testing
-        schedule.every(20).seconds.do(populate_cron_table)
+        #schedule at every 1200 seconds for testing
+        schedule.every(1200).seconds.do(populate_cron_table)
 
         while True:
             schedule.run_pending()

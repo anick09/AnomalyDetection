@@ -43,3 +43,4 @@ websockets
 pytz
 torch
 torchvision
+schedule
