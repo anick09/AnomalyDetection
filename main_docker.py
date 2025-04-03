@@ -1198,4 +1198,4 @@ def get_data():
 import uvicorn
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="192.168.1.47", port=8001)
+    uvicorn.run(app, host="0.0.0.0", port=9001)

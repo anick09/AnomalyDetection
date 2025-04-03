@@ -1,26 +1,38 @@
 import sqlite3
 import base64
 
-# Connect to the database
-conn = sqlite3.connect("inspection_system_new2.db")
-cursor = conn.cursor()
+DB_NAME = "/data/inspection_system_new5.db"
 
-# Function to encode password
 def encode_password(password):
     return base64.b64encode(password.encode()).decode()
 
-# Dummy users
-users = [
-    ("admin", encode_password("admin123"), "admin", 3),
-    ("user1", encode_password("password1"), "user", 3),
-    ("user2", encode_password("password2"), "user", 3)
-]
+def insert_dummy_users():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
 
-# Insert dummy users
-cursor.executemany("INSERT OR IGNORE INTO users (username, password, role, retries_left) VALUES (?, ?, ?, ?)", users)
+    # Check if users already exist
+    cursor.execute("SELECT COUNT(*) FROM Users;")
+    user_count = cursor.fetchone()[0]
 
-# Commit and close
-conn.commit()
-conn.close()
+    if user_count > 0:
+        print("Users already exist. Skipping user insertion.")
+        conn.close()
+        return
 
-print("Dummy users added successfully!")
+    # Dummy users
+    users = [
+        ("admin", encode_password("admin123"), "admin", 3),
+        ("user1", encode_password("password1"), "user", 3),
+        ("user2", encode_password("password2"), "user", 3)
+    ]
+
+    # Insert dummy users
+    cursor.executemany("INSERT INTO Users (username, password, role, retries_left) VALUES (?, ?, ?, ?)", users)
+
+    # Commit and close
+    conn.commit()
+    conn.close()
+    print("Dummy users added successfully!")
+
+if __name__ == "__main__":
+    insert_dummy_users()

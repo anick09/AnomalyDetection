@@ -205,10 +205,23 @@ def find_anomaly(reference_image_path, target_image_path, camid, roi, metric='co
     ssim_end_time = time.time()
     logger.info(f"SSIM bounding box extraction took {ssim_end_time - ssim_start_time:.2f} seconds")
 
+    # logger.info(f"Loading ResNet model on {device}")
+    # model = resnet18(pretrained=True).to(device)
+    # model = nn.Sequential(*list(model.children())[:-1])
+    # model.eval()
+    
     logger.info(f"Loading ResNet model on {device}")
-    model = resnet18(pretrained=True).to(device)
+    model_path = f"{DOCKER_VOLUME_PATH}/resnet18.pth"
+    if os.path.exists(model_path):
+        logger.info("Loading ResNet model from local path")
+        model = resnet18(pretrained=False)
+        model.load_state_dict(torch.load(model_path, map_location=device))
+    else:
+        logger.error("Model file not found. Please ensure it is available at the specified path.")
+        raise FileNotFoundError(f"Model file not found at {model_path}")
     model = nn.Sequential(*list(model.children())[:-1])
     model.eval()
+
 
     logger.info("Preprocessing images")
     reference_image_tensor = preprocess_image(Image.fromarray(reference_image_full), device)

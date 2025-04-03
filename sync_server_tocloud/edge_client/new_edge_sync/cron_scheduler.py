@@ -3,9 +3,20 @@ from datetime import datetime
 import time
 import schedule
 import os
+import logging
+
+# Initialize logging
+LOGS_DIR_LOGGING = "/data/server_sync_logs"
+os.makedirs(LOGS_DIR_LOGGING, exist_ok=True)
+log_file_path = os.path.join(LOGS_DIR_LOGGING, "cron_service.log")
+logging.basicConfig(
+    filename=log_file_path,
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+)
+logger = logging.getLogger(__name__)
 
 # Initialize the database connection
-# os.makedirs("data", exist_ok=True)
 conn = sqlite3.connect('/data/sync_service.db')
 cursor = conn.cursor()
 
@@ -26,21 +37,22 @@ def populate_cron_table():
     INSERT INTO cron_table (timestamp, status) VALUES (?, 'pending')
     ''', (timestamp,))
     conn.commit()
-    print(f"Inserted row with timestamp: {timestamp} and status: 'pending'")
+    logger.info(f"Inserted row with timestamp: {timestamp} and status: 'pending'")
 
 if __name__ == "__main__":
     try:
-        print("Starting daily cron service...")
+        logger.info("Starting daily cron service...")
+        
         # Schedule the cron job at 1 AM daily
         # schedule.every().day.at("15:17").do(populate_cron_table)
 
-        #schedule at every 1200 seconds for testing
-        schedule.every(1200).seconds.do(populate_cron_table)
+        # Schedule at every 600 seconds for testing
+        schedule.every(600).seconds.do(populate_cron_table)
 
         while True:
             schedule.run_pending()
             time.sleep(60)
     except KeyboardInterrupt:
-        print("Cron service stopped.")
+        logger.info("Cron service stopped.")
     finally:
         conn.close()

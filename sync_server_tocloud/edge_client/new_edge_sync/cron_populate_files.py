@@ -1,30 +1,40 @@
-# process_cron.py
 import sqlite3
 import time
 import schedule
+import logging
 from datetime import datetime
-import os
 import os
 import json
 import hashlib
-import sqlite3
 import requests
+import threading
+import signal
 
+# Directories
 INSPECTION_DB_PATH = "/data/inspection_system_new5.db"
 LOGS_DIR = "/data/jsonlogs"
 LOGS_DIR1 = "/data/main_logs"
 LOGS_DIR2 = "/data/process_image_logs"
+LOGS_DIR_LOGGING = "/data/server_sync_logs"
 os.makedirs(LOGS_DIR, exist_ok=True)
+os.makedirs(LOGS_DIR_LOGGING, exist_ok=True)
 
+# Logger Setup
+log_file_path = os.path.join(LOGS_DIR_LOGGING, "process_cron.log")
+logging.basicConfig(
+    filename=log_file_path,
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+)
+logger = logging.getLogger(__name__)
 
 # Initialize the database connection
-conn = sqlite3.connect('/data/sync_service.db')
+conn = sqlite3.connect('/data/sync_service.db', timeout=10)
 cursor = conn.cursor()
-
-conn_inspection = sqlite3.connect(INSPECTION_DB_PATH)
+conn_inspection = sqlite3.connect(INSPECTION_DB_PATH, timeout=10)
 cursor_inspection = conn_inspection.cursor()
 
-# Create the file_sync_table if it doesn't exist
+# Ensure file_sync_table exists
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS file_sync_table (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,24 +55,40 @@ CREATE TABLE IF NOT EXISTS SyncHistory (
 ''')
 conn.commit()
 
+# def get_pending_cron_entry():
+#     conn = sqlite3.connect("/data/sync_service.db")
+#     cursor = conn.cursor()
+    
+#     cursor.execute("SELECT id, timestamp FROM cron_table WHERE status = 'pending' ORDER BY timestamp ASC LIMIT 1;")
+#     entry = cursor.fetchone()
+    
+#     cursor.close()
+#     conn.close()
+#     return entry  # Returns (id, timestamp) or None
+
+# def update_cron_status(cron_id, status):
+#     conn = sqlite3.connect("/data/sync_service.db")
+#     cursor = conn.cursor()
+    
+#     cursor.execute("UPDATE cron_table SET status = ? WHERE id = ?", (status, cron_id))
+#     conn.commit()
+    
+#     cursor.close()
+#     conn.close()
+
+# Job lock
+job_lock = threading.Lock()
+
+# Functions (unchanged except for connection reuse)
 def get_pending_cron_entry():
-    conn = sqlite3.connect("/data/sync_service.db")
-    cursor = conn.cursor()
-    
+    global cursor
     cursor.execute("SELECT id, timestamp FROM cron_table WHERE status = 'pending' ORDER BY timestamp ASC LIMIT 1;")
-    entry = cursor.fetchone()
-    
-    conn.close()
-    return entry  # Returns (id, timestamp) or None
+    return cursor.fetchone()
 
 def update_cron_status(cron_id, status):
-    conn = sqlite3.connect("/data/sync_service.db")
-    cursor = conn.cursor()
-    
+    global cursor, conn
     cursor.execute("UPDATE cron_table SET status = ? WHERE id = ?", (status, cron_id))
     conn.commit()
-    
-    conn.close()
 
 
 def get_last_synced_inspection():
@@ -89,29 +115,33 @@ def fetch_new_inspections(last_inspection_id,time_stamp):
 
 # Fetch Inspection Details
 def fetch_inspection_details(inspection_id):
-    conn = sqlite3.connect(INSPECTION_DB_PATH)
-    cursor = conn.cursor()
+    conn = None
+    try:
+        conn = sqlite3.connect(INSPECTION_DB_PATH)
+        cursor = conn.cursor()
 
-    cursor.execute("""
-        SELECT camera_index, x_min, y_min, x_max, y_max, confidence
-        FROM BoundingBox_AI WHERE inspection_id = ?
-    """, (inspection_id,))
-    bounding_boxes = cursor.fetchall()
+        cursor.execute("""
+            SELECT camera_index, x_min, y_min, x_max, y_max, confidence
+            FROM BoundingBox_AI WHERE inspection_id = ?
+        """, (inspection_id,))
+        bounding_boxes = cursor.fetchall()
 
-    cursor.execute("""
-        SELECT camera_index, reviewer_comment, Anomalies_found, Anomalies_missed
-        FROM Reviewer_Feedback WHERE inspection_id = ?
-    """, (inspection_id,))
-    feedback = cursor.fetchall()
+        cursor.execute("""
+            SELECT camera_index, reviewer_comment, Anomalies_found, Anomalies_missed
+            FROM Reviewer_Feedback WHERE inspection_id = ?
+        """, (inspection_id,))
+        feedback = cursor.fetchall()
 
-    cursor.execute("""
-        SELECT camera_index, x_min, y_min, width, height, type, comment
-        FROM False_Annotations WHERE inspection_id = ?
-    """, (inspection_id,))
-    false_annotations = cursor.fetchall()
+        cursor.execute("""
+            SELECT camera_index, x_min, y_min, width, height, type, comment
+            FROM False_Annotations WHERE inspection_id = ?
+        """, (inspection_id,))
+        false_annotations = cursor.fetchall()
 
-    conn.close()
-    return bounding_boxes, feedback, false_annotations
+        return bounding_boxes, feedback, false_annotations
+    finally:
+        if conn:
+            conn.close()
 
 
 # Generate JSON Logs
@@ -226,28 +256,37 @@ def populate_file_sync_table(timestamp):
     else:
         print(f"No new files to populate for timestamp: {timestamp}")
 
-
 def run_cron_job():
-    cron_entry = get_pending_cron_entry()
-    
-    if cron_entry:
-        cron_id, timestamp = cron_entry
-        print(f"Found pending cron job: ID {cron_id}, Timestamp {timestamp}")
-
-        try:
+    if not job_lock.acquire(blocking=False):
+        logger.info("Another job is already running, skipping this run.")
+        return
+    try:
+        cron_entry = get_pending_cron_entry()
+        if cron_entry:
+            cron_id, timestamp = cron_entry
+            logger.info(f"Found pending cron job: ID {cron_id}, Timestamp {timestamp}")
             populate_file_sync_table(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
             update_cron_status(cron_id, "complete")
-            print(f"Cron job {cron_id} marked as complete.")
-        except Exception as e:
-            print(f"Error processing cron job {cron_id}: {e}")
-            update_cron_status(cron_id, "failed")
-    else:
-        print("No pending cron jobs found.")
+            logger.info(f"Cron job {cron_id} completed successfully.")
+    except Exception as e:
+        logger.error(f"Error processing cron job {cron_id}: {e}")
+    finally:
+        job_lock.release()
 
-# Schedule the job every 1 minute
-schedule.every(1).minutes.do(run_cron_job)
+# Cleanup on exit
+def cleanup(signum, frame):
+    conn.close()
+    conn_inspection.close()
+    logger.info("Database connections closed.")
+    exit(0)
+
+signal.signal(signal.SIGINT, cleanup)
+signal.signal(signal.SIGTERM, cleanup)
+
+# Schedule the job
+schedule.every(8).minutes.do(run_cron_job)
 
 # Keep running the scheduler
 while True:
     schedule.run_pending()
-    time.sleep(10)  # Prevent excessive CPU usa
+    time.sleep(10)

@@ -5,17 +5,25 @@ import hashlib
 import sqlite3
 import requests
 import time
+import logging
 
+FILES_LIST_DBPATH = "/data/sync_service.db"
+CLOUD_SERVER_URL = "http://192.168.1.74:9002/api/upload"
+LOGS_DIR_LOGGING = "/data/server_sync_logs"
+os.makedirs(LOGS_DIR_LOGGING, exist_ok=True)
 
-FILES_LIST_DBPATH="data/sync_service.db"
-CLOUD_SERVER_URL="http://192.168.1.91:8002/api/upload"
-
-#This is a cron servie that reads all the files from the file_sync_table and pushes them to the cloud. For every file that has sync_status as pending,
-#calculate the checksum and push it to the cloud. The cloud will return a response with checksum. If they match then update the sync_status to success. If they don't match then update the sync_status to failed.
+# Logger Setup
+log_file_path = os.path.join(LOGS_DIR_LOGGING, "file_sync.log")
+logging.basicConfig(
+    filename=log_file_path,
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+)
+logger = logging.getLogger(__name__)
 
 def generate_checksum(file_path):
     sha256_hash = hashlib.sha256()
-    print(f"Generating checksum for: {file_path}")
+    logger.info(f"Generating checksum for: {file_path}")
     with open(file_path, "rb") as f:
         for byte_block in iter(lambda: f.read(4096), b""):
             sha256_hash.update(byte_block)
@@ -30,18 +38,18 @@ def log_synced_file(file_path, checksum, status):
     )
     conn.commit()
     conn.close()
+    logger.info(f"Updated sync status for {file_path} to {status}.")
 
 def upload_to_cloud():
     conn = sqlite3.connect(FILES_LIST_DBPATH)
     cursor = conn.cursor()
     
-    # Get all pending files
     cursor.execute("SELECT file_path FROM file_sync_table WHERE sync_status = 'pending'")
     pending_files = cursor.fetchall()
     conn.close()
     
     if not pending_files:
-        print("No pending files to upload.")
+        logger.info("No pending files to upload.")
         return
     
     checksums = {}
@@ -49,16 +57,16 @@ def upload_to_cloud():
     
     for (file_path,) in pending_files:
         if os.path.exists(file_path):
-            print(f"Uploading: {file_path}")
+            logger.info(f"Uploading: {file_path}")
             file_checksum = generate_checksum(file_path)
             checksums[file_path] = file_checksum
             files.append(("files", (os.path.basename(file_path), open(file_path, "rb"))))
         else:
-            print(f"File not found: {file_path}")
+            logger.warning(f"File not found: {file_path}")
             log_synced_file(file_path, "", "failed")
     
     if not files:
-        print("No valid files to upload.")
+        logger.info("No valid files to upload.")
         return
     
     response = requests.post(
@@ -79,22 +87,22 @@ def upload_to_cloud():
                     filename = os.path.basename(file_path)
                     if server_checksums.get(filename) == checksum:
                         log_synced_file(file_path, checksum, "success")
-                        print(f"{file_path} - Upload and verification successful.")
+                        logger.info(f"{file_path} - Upload and verification successful.")
                     else:
                         log_synced_file(file_path, checksum, "pending")
-                        print(f"{file_path} - Checksum mismatch or failure.")
+                        logger.warning(f"{file_path} - Checksum mismatch or failure.")
             else:
-                print("Server reported failure.")
+                logger.error("Server reported failure.")
         except json.JSONDecodeError:
-            print("Failed to parse server response.")
+            logger.error("Failed to parse server response.")
     else:
-        print(f"Upload failed: {response.status_code} - {response.text}")
+        logger.error(f"Upload failed: {response.status_code} - {response.text}")
 
 def main():
     while True:
         upload_to_cloud()
-        print("Waiting for 2 minutes before next sync...")
-        time.sleep(120)  # 30 minutes
+        logger.info("Waiting for 2 minutes before next sync...")
+        time.sleep(360) # sleep for 6 minutes
     
 if __name__ == "__main__":
     main()
