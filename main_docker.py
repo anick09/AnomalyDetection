@@ -1194,6 +1194,101 @@ def get_data():
     logger_main.info("Successfully fetched ROI and threshold data")
     return response_data
 
+## API to send prev ROI data with out clicking new image
+# Constants
+# Constants
+IMAGE_FOLDER = f"{DOCKER_VOLUME_PATH}/full_image_setROI"
+ROI_JSON_PATH = f"{DOCKER_VOLUME_PATH}/roi_data.json"
+THRESHOLD_JSON_PATH = f"{DOCKER_VOLUME_PATH}/threshold.json"
+
+# Logger setup (Assuming logger_main is already defined in your main module)
+logger_main = logging.getLogger("main_logger")
+
+def get_latest_image(camera_index: int) -> Optional[str]:
+    """Fetch the latest image for a given camera index from the directory."""
+    try:
+        search_pattern = os.path.join(IMAGE_FOLDER, f"{camera_index}_*.jpg")
+        image_files = sorted(glob.glob(search_pattern), key=os.path.getmtime, reverse=True)
+
+        if not image_files:
+            logger_main.warning(f"No images found for camera {camera_index}.")
+            return None
+
+        logger_main.info(f"Latest image for camera {camera_index}: {image_files[0]}")
+        return image_files[0]
+
+    except Exception as e:
+        logger_main.exception(f"Error fetching latest image for camera {camera_index}: {e}")
+        return None
+
+def read_json(file_path: str) -> dict:
+    """Reads a JSON file and returns its content."""
+    try:
+        with open(file_path, "r") as f:
+            data = json.load(f)
+            logger_main.info(f"Successfully read JSON file: {file_path}")
+            return data
+    except Exception as e:
+        logger_main.exception(f"Failed to read JSON file {file_path}: {e}")
+        return {"error": f"Failed to read {file_path}"}
+
+@app.get("/get_old_roi_data")
+def get_old_data():
+    """Fetches the latest saved images along with ROI and threshold data."""
+    errors = []
+
+    try:
+        # Fetch latest images
+        img1_path = get_latest_image(0)
+        img2_path = get_latest_image(2)
+
+        if not img1_path or not img2_path:
+            errors.append("No recent images found for one or both cameras.")
+
+        # Encode images
+        im1_b64, im2_b64 = None, None
+        try:
+            if img1_path:
+                im1_b64 = base64.b64encode(cv2.imread(img1_path).tobytes()).decode("utf-8")
+            if img2_path:
+                im2_b64 = base64.b64encode(cv2.imread(img2_path).tobytes()).decode("utf-8")
+            logger_main.info("Images successfully encoded to Base64.")
+        except Exception as e:
+            logger_main.exception(f"Error encoding images: {e}")
+            errors.append("Error encoding images.")
+
+        # Read ROI & threshold data
+        roi_data = read_json(ROI_JSON_PATH)
+        threshold_data = read_json(THRESHOLD_JSON_PATH)
+
+        if "error" in roi_data:
+            errors.append(roi_data["error"])
+        if "error" in threshold_data:
+            errors.append(threshold_data["error"])
+
+        # Handle errors
+        if errors:
+            logger_main.warning(f"Errors occurred: {errors}")
+            return JSONResponse(content={"errors": errors}, status_code=500)
+
+        # Construct response
+        response_data = {
+            "images": {
+                "image1": im1_b64,
+                "image2": im2_b64
+            },
+            "roi": roi_data,
+            "threshold": threshold_data
+        }
+
+        logger_main.info("Successfully fetched old images, ROI, and threshold data.")
+        return response_data
+
+    except Exception as e:
+        logger_main.exception(f"Unexpected error in get_old_roi_data: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+
+
 
 import uvicorn
 
