@@ -9,6 +9,7 @@ from pathlib import Path
 import cv2
 import asyncio
 import json,os
+import glob
 from datetime import datetime 
 import pytz
 from typing import List
@@ -458,12 +459,31 @@ class SubmitROIRequest(BaseModel):
     camera_id: int
     bounding_box: BoundingBox
 
-def move_old_images():
-    """Move previous images to a backup folder before saving new ones."""
-    for file in os.listdir(IMAGE_FOLDER):
-        if file.endswith(".jpg"):
-            shutil.move(os.path.join(IMAGE_FOLDER, file), os.path.join(BACKUP_FOLDER, file))
-            logger_main.info(f"Moved old image {file} to backup.")
+def move_old_image(camera_id: int):
+    """
+    Move the latest image for the specified camera ID from IMAGE_FOLDER to BACKUP_FOLDER.
+    """
+    try:
+        # Get all matching images for this camera
+        matching_files = sorted(
+            [f for f in os.listdir(IMAGE_FOLDER) if f.startswith(f"{camera_id}_")],
+            key=lambda x: datetime.strptime("_".join(x.split("_")[1:3]).split(".")[0], '%Y-%m-%d_%H-%M-%S'),
+            reverse=True
+        )
+
+        if matching_files:
+            latest_file = matching_files[0]
+            src_path = os.path.join(IMAGE_FOLDER, latest_file)
+            dest_path = os.path.join(BACKUP_FOLDER, latest_file)
+
+            shutil.move(src_path, dest_path)
+            logger_main.info(f"Moved latest image for camera {camera_id} to backup: {latest_file}")
+        else:
+            logger_main.info(f"No existing image to move for camera {camera_id}")
+
+    except Exception as e:
+        logger_main.exception(f"Failed to move old image for camera {camera_id}: {e}")
+
 
 
 def save_roi_data(camera_id, bounding_box):
@@ -500,96 +520,162 @@ def save_roi_data(camera_id, bounding_box):
         logger_main.error(f"Error saving ROI data for Camera {camera_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to save ROI data")
 
-@app.get("/setRoi")
-async def set_roi():
-    """Capture images from both cameras, save them, and return them to the UI."""
-    logger_main.info("set_roi endpoint called.")
+# @app.get("/setRoi")
+# async def set_roi():
+#     """Capture images from both cameras, save them, and return them to the UI."""
+#     logger_main.info("set_roi endpoint called.")
 
-    try:
-        move_old_images()  # Move old images before saving new ones
+#     try:
+#         move_old_images()  # Move old images before saving new ones
 
-        # Capture images from cameras 0 and 2
-        frame1 = capture_image(0)
-        frame2 = capture_image(2)
+#         # Capture images from cameras 0 and 2
+#         frame1 = capture_image(0)
+#         frame2 = capture_image(2)
 
-        if frame1 is None or frame2 is None:
-            raise ValueError("Failed to capture images from one or both cameras.")
+#         if frame1 is None or frame2 is None:
+#             raise ValueError("Failed to capture images from one or both cameras.")
 
-        # Encode images in base64 for UI display
-        _, im_arr1 = cv2.imencode('.jpg', frame1)
-        im1_b64 = base64.b64encode(im_arr1.tobytes()).decode("utf-8")
+#         # Encode images in base64 for UI display
+#         _, im_arr1 = cv2.imencode('.jpg', frame1)
+#         im1_b64 = base64.b64encode(im_arr1.tobytes()).decode("utf-8")
 
-        _, im_arr2 = cv2.imencode('.jpg', frame2)
-        im2_b64 = base64.b64encode(im_arr2.tobytes()).decode("utf-8")
+#         _, im_arr2 = cv2.imencode('.jpg', frame2)
+#         im2_b64 = base64.b64encode(im_arr2.tobytes()).decode("utf-8")
 
-        # Save images with timestamp
-        timestamp = datetime.now(swiss_tz).strftime('%Y-%m-%d_%H-%M-%S')
-        img1_path = os.path.join(IMAGE_FOLDER, f"0_{timestamp}.jpg")
-        img2_path = os.path.join(IMAGE_FOLDER, f"2_{timestamp}.jpg")
+#         # Save images with timestamp
+#         timestamp = datetime.now(swiss_tz).strftime('%Y-%m-%d_%H-%M-%S')
+#         img1_path = os.path.join(IMAGE_FOLDER, f"0_{timestamp}.jpg")
+#         img2_path = os.path.join(IMAGE_FOLDER, f"2_{timestamp}.jpg")
 
-        cv2.imwrite(img1_path, frame1)
-        cv2.imwrite(img2_path, frame2)
+#         cv2.imwrite(img1_path, frame1)
+#         cv2.imwrite(img2_path, frame2)
 
-        logger_main.info(f"Images saved successfully: {img1_path}, {img2_path}")
+#         logger_main.info(f"Images saved successfully: {img1_path}, {img2_path}")
 
-        return {"frame1": im1_b64, "frame2": im2_b64}
+#         return {"frame1": im1_b64, "frame2": im2_b64}
 
-    except ValueError as ve:
-        logger_main.error(f"ValueError: {ve}")
-        raise HTTPException(status_code=500, detail=str(ve))
-    except Exception as e:
-        logger_main.error(f"Unexpected error in set_roi: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+#     except ValueError as ve:
+#         logger_main.error(f"ValueError: {ve}")
+#         raise HTTPException(status_code=500, detail=str(ve))
+#     except Exception as e:
+#         logger_main.error(f"Unexpected error in set_roi: {e}")
+#         raise HTTPException(status_code=500, detail="Internal server error")
+
+# @app.post("/setRoi/submit")
+# async def submit_roi(data: SubmitROIRequest):
+#     """Load the latest saved image, crop it, and save the ROI."""
+#     try:
+#         logger_main.info(f"Received submit_roi request for Camera {data.camera_id}")
+
+#         # Find the latest saved image for the given camera
+#         images = sorted(
+#             [f for f in os.listdir(IMAGE_FOLDER) if f.startswith(f"{data.camera_id}_")],
+#             key=lambda x: datetime.strptime("_".join(x.split("_")[1:3]).split(".")[0], '%Y-%m-%d_%H-%M-%S'),
+#             reverse=True
+#         )       
+#         if not images:
+#             raise HTTPException(status_code=404, detail="No saved images found for this camera")
+
+#         latest_image_path = os.path.join(IMAGE_FOLDER, images[0])
+#         logger_main.info(f"Using latest image: {latest_image_path}")
+
+#         # Load the latest image
+#         frame = cv2.imread(latest_image_path)
+#         if frame is None:
+#             raise HTTPException(status_code=500, detail="Failed to load saved image")
+
+#         # Crop ROI
+#         x, y, w, h = data.bounding_box.x, data.bounding_box.y, data.bounding_box.width, data.bounding_box.height
+#         roi = frame[y:y+h, x:x+w]
+
+#         if roi.size == 0:
+#             raise HTTPException(status_code=400, detail="Invalid bounding box dimensions")
+
+#         # Save cropped ROI
+#         roi_filename = f"roi_camera_{data.camera_id}.jpg"
+#         roi_path = os.path.join(IMAGE_FOLDER, roi_filename)
+#         cv2.imwrite(roi_filename, roi)
+#         logger_main.info(f"ROI image saved: {roi_filename}")
+
+#         save_roi_data(data.camera_id, data.bounding_box)
+#         logger_main.info(f"ROI data saved for Camera {data.camera_id}")
+
+#         return {"status": "Success", "roi_image_path": roi_path}
+    
+
+#     except HTTPException as http_exc:
+#         logger_main.error(f"HTTP Exception in submit_roi: {http_exc.detail}")
+#         raise http_exc
+
+#     except Exception as e:
+#         logger_main.exception(f"Unexpected error in submit_roi: {e}")
+#         raise HTTPException(status_code=500, detail="An unexpected error occurred")
 
 @app.post("/setRoi/submit")
 async def submit_roi(data: SubmitROIRequest):
-    """Load the latest saved image, crop it, and save the ROI."""
+    """Crop and save ROI from temp image, promote to permanent."""
     try:
+        print(f"Received submit_roi request for Camera {data.camera_id}")
         logger_main.info(f"Received submit_roi request for Camera {data.camera_id}")
 
-        # Find the latest saved image for the given camera
-        images = sorted(
-            [f for f in os.listdir(IMAGE_FOLDER) if f.startswith(f"{data.camera_id}_")],
-            key=lambda x: datetime.strptime("_".join(x.split("_")[1:3]).split(".")[0], '%Y-%m-%d_%H-%M-%S'),
-            reverse=True
-        )       
-        if not images:
-            raise HTTPException(status_code=404, detail="No saved images found for this camera")
+        # Locate preview image
+        temp_image_path = os.path.join(TEMP_FOLDER, f"{data.camera_id}_preview.jpg")
+        if not os.path.exists(temp_image_path):
+            raise HTTPException(status_code=404, detail="Preview image not found. Please call /setRoi first.")
 
-        latest_image_path = os.path.join(IMAGE_FOLDER, images[0])
-        logger_main.info(f"Using latest image: {latest_image_path}")
-
-        # Load the latest image
-        frame = cv2.imread(latest_image_path)
+        # Load image
+        frame = cv2.imread(temp_image_path)
         if frame is None:
-            raise HTTPException(status_code=500, detail="Failed to load saved image")
+            raise HTTPException(status_code=500, detail="Failed to load preview image")
 
         # Crop ROI
         x, y, w, h = data.bounding_box.x, data.bounding_box.y, data.bounding_box.width, data.bounding_box.height
         roi = frame[y:y+h, x:x+w]
 
+        cv2.imshow("roi",roi)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+
         if roi.size == 0:
             raise HTTPException(status_code=400, detail="Invalid bounding box dimensions")
 
-        # Save cropped ROI
+        # Save cropped ROI and full image with timestamp
+        timestamp = datetime.now(swiss_tz).strftime('%Y-%m-%d_%H-%M-%S')
+        full_img_path = os.path.join(IMAGE_FOLDER, f"{data.camera_id}_{timestamp}.jpg")
         roi_filename = f"roi_camera_{data.camera_id}.jpg"
-        roi_path = os.path.join(IMAGE_FOLDER, roi_filename)
-        cv2.imwrite(roi_filename, roi)
-        logger_main.info(f"ROI image saved: {roi_filename}")
+        # roi_path = os.path.join(IMAGE_FOLDER, roi_filename)
+        roi_path=roi_filename
 
+        #Move old images to backup folder
+        move_old_image(data.camera_id)
+
+        cv2.imwrite(full_img_path, frame)
+        cv2.imwrite(roi_filename, roi)
+        print(f"Images saved: full={full_img_path}, roi={roi_path}")
+        logger_main.info(f"Images saved: full={full_img_path}, roi={roi_path}")
+
+        # Save ROI metadata
         save_roi_data(data.camera_id, data.bounding_box)
-        logger_main.info(f"ROI data saved for Camera {data.camera_id}")
+        
+
+        # Cleanup: Remove temp image
+        os.remove(temp_image_path)
+        logger_main.info(f"Temp image deleted: {temp_image_path}")
+
 
         return {"status": "Success", "roi_image_path": roi_path}
-    
+
+        
 
     except HTTPException as http_exc:
         logger_main.error(f"HTTP Exception in submit_roi: {http_exc.detail}")
         raise http_exc
-
     except Exception as e:
         logger_main.exception(f"Unexpected error in submit_roi: {e}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred")
+
+
 
 
 #--------------------------------------------------------------------------------------------------------------------
@@ -1265,16 +1351,100 @@ def read_json(file_path):
         return {"error": str(e)}
 
 
+# @app.get("/get_roi_data")
+# def get_data():
+#     """Fetches ROI data, threshold data, and captures images."""
+#     errors = []
+
+#     logger_main.info("get_roi_data API called")
+
+#     move_old_images()  # Move old images before saving new ones
+
+#     # Capture images from cameras
+#     frame1 = capture_image(0)
+#     frame2 = capture_image(2)
+
+#     if frame1 is None or frame2 is None:
+#         logger_main.error("Failed to capture images from one or both cameras")
+#         raise HTTPException(status_code=500, detail="Failed to capture images from one or both cameras.")
+
+#     logger_main.info("Successfully captured images from both cameras")
+
+#     # Encode images
+#     try:
+#         _, im_arr1 = cv2.imencode('.jpg', frame1)
+#         im1_b64 = base64.b64encode(im_arr1.tobytes()).decode("utf-8")
+
+#         _, im_arr2 = cv2.imencode('.jpg', frame2)
+#         im2_b64 = base64.b64encode(im_arr2.tobytes()).decode("utf-8")
+
+#         logger_main.info("Images successfully encoded to base64")
+#     except Exception as e:
+#         logger_main.exception(f"Error encoding images: {e}")
+#         raise HTTPException(status_code=500, detail="Error encoding images")
+
+#     # Save images
+#     timestamp = datetime.now(swiss_tz).strftime('%Y-%m-%d_%H-%M-%S')
+#     img1_path = os.path.join(IMAGE_FOLDER, f"0_{timestamp}.jpg")
+#     img2_path = os.path.join(IMAGE_FOLDER, f"2_{timestamp}.jpg")
+
+#     try:
+#         cv2.imwrite(img1_path, frame1)
+#         cv2.imwrite(img2_path, frame2)
+#         logger_main.info(f"Images saved successfully: {img1_path}, {img2_path}")
+#     except Exception as e:
+#         logger_main.exception(f"Error saving images: {e}")
+#         raise HTTPException(status_code=500, detail="Error saving images")
+
+#     # Read JSON data
+#     roi_data = read_json(ROI_JSON_PATH)
+#     if "error" in roi_data:
+#         errors.append(roi_data["error"])
+
+#     threshold_data = read_json(THRESHOLD_JSON_PATH)
+#     if "error" in threshold_data:
+#         errors.append(threshold_data["error"])
+
+#     if errors:
+#         logger_main.warning(f"Errors occurred: {errors}")
+#         return JSONResponse(content={"errors": errors}, status_code=500)
+
+#     # Construct response
+#     response_data = {
+#         "images": {
+#             "image1": im1_b64,
+#             "image2": im2_b64
+#         },
+#         "roi": roi_data,
+#         "threshold": threshold_data
+#     }
+
+#     logger_main.info("Successfully fetched ROI and threshold data")
+#     return response_data
+
+TEMP_FOLDER = os.path.join(IMAGE_FOLDER, "temp")
+
+# Function to cleanup the temp folder
+def cleanup_temp_folder():
+    """Remove all files in the TEMP_FOLDER."""
+    try:
+        for filename in os.listdir(TEMP_FOLDER):
+            path = os.path.join(TEMP_FOLDER, filename)
+            if os.path.isfile(path):
+                os.remove(path)
+                logger_main.info(f"Deleted temp file: {filename}")
+    except Exception as e:
+        logger_main.error(f"Error during temp folder cleanup: {e}")
+
+
 @app.get("/get_roi_data")
 def get_data():
-    """Fetches ROI data, threshold data, and captures images."""
+    """Fetches ROI data, threshold data, and captures preview images (temp only)."""
     errors = []
 
     logger_main.info("get_roi_data API called")
 
-    move_old_images()  # Move old images before saving new ones
-
-    # Capture images from cameras
+    # Capture preview images
     frame1 = capture_image(0)
     frame2 = capture_image(2)
 
@@ -1284,7 +1454,7 @@ def get_data():
 
     logger_main.info("Successfully captured images from both cameras")
 
-    # Encode images
+    # Encode to base64
     try:
         _, im_arr1 = cv2.imencode('.jpg', frame1)
         im1_b64 = base64.b64encode(im_arr1.tobytes()).decode("utf-8")
@@ -1297,20 +1467,20 @@ def get_data():
         logger_main.exception(f"Error encoding images: {e}")
         raise HTTPException(status_code=500, detail="Error encoding images")
 
-    # Save images
-    timestamp = datetime.now(swiss_tz).strftime('%Y-%m-%d_%H-%M-%S')
-    img1_path = os.path.join(IMAGE_FOLDER, f"0_{timestamp}.jpg")
-    img2_path = os.path.join(IMAGE_FOLDER, f"2_{timestamp}.jpg")
-
+    # Save preview images to temp/
     try:
-        cv2.imwrite(img1_path, frame1)
-        cv2.imwrite(img2_path, frame2)
-        logger_main.info(f"Images saved successfully: {img1_path}, {img2_path}")
-    except Exception as e:
-        logger_main.exception(f"Error saving images: {e}")
-        raise HTTPException(status_code=500, detail="Error saving images")
+        os.makedirs(TEMP_FOLDER, exist_ok=True)
+        temp_path1 = os.path.join(TEMP_FOLDER, "0_preview.jpg")
+        temp_path2 = os.path.join(TEMP_FOLDER, "2_preview.jpg")
 
-    # Read JSON data
+        cv2.imwrite(temp_path1, frame1)
+        cv2.imwrite(temp_path2, frame2)
+        logger_main.info(f"Preview images saved to temp: {temp_path1}, {temp_path2}")
+    except Exception as e:
+        logger_main.exception(f"Error saving preview images: {e}")
+        raise HTTPException(status_code=500, detail="Error saving preview images")
+
+    # Read ROI and threshold JSON data
     roi_data = read_json(ROI_JSON_PATH)
     if "error" in roi_data:
         errors.append(roi_data["error"])
@@ -1335,3 +1505,107 @@ def get_data():
 
     logger_main.info("Successfully fetched ROI and threshold data")
     return response_data
+
+
+## API to send prev ROI data with out clicking new image
+# Constants
+# Constants
+IMAGE_FOLDER = f"full_image_setROI"
+ROI_JSON_PATH = f"roi_data.json"
+THRESHOLD_JSON_PATH = f"threshold.json"
+
+# Logger setup (Assuming logger_main is already defined in your main module)
+logger_main = logging.getLogger("main_logger")
+
+def get_latest_image(camera_index: int) -> Optional[str]:
+    """Fetch the latest image for a given camera index from the directory without using glob."""
+    try:
+        files = [f for f in os.listdir(IMAGE_FOLDER) if f.startswith(f"{camera_index}_") and f.endswith(".jpg")]
+        files = sorted(files, key=lambda x: os.path.getmtime(os.path.join(IMAGE_FOLDER, x)), reverse=True)
+
+        if not files:
+            logger_main.warning(f"No images found for camera {camera_index}.")
+            return None
+
+        latest_image_path = os.path.join(IMAGE_FOLDER, files[0])
+        logger_main.info(f"Latest image for camera {camera_index}: {latest_image_path}")
+        return latest_image_path
+
+    except Exception as e:
+        logger_main.exception(f"Error fetching latest image for camera {camera_index}: {e}")
+        return None
+
+
+def read_json(file_path: str) -> dict:
+    """Reads a JSON file and returns its content."""
+    try:
+        with open(file_path, "r") as f:
+            data = json.load(f)
+            logger_main.info(f"Successfully read JSON file: {file_path}")
+            return data
+    except Exception as e:
+        logger_main.exception(f"Failed to read JSON file {file_path}: {e}")
+        return {"error": f"Failed to read {file_path}"}
+
+@app.get("/get_old_roi_data")
+def get_old_data():
+    """Fetches the latest saved images along with ROI and threshold data."""
+    errors = []
+
+    try:
+        # Fetch latest images
+        img1_path = get_latest_image(0)
+        img2_path = get_latest_image(2)
+
+        if not img1_path or not img2_path:
+            errors.append("No recent images found for one or both cameras.")
+
+        # Encode images
+        im1_b64, im2_b64 = None, None
+        try:
+            if img1_path:
+                im1_b64 = base64.b64encode(cv2.imread(img1_path).tobytes()).decode("utf-8")
+            if img2_path:
+                im2_b64 = base64.b64encode(cv2.imread(img2_path).tobytes()).decode("utf-8")
+            logger_main.info("Images successfully encoded to Base64.")
+        except Exception as e:
+            logger_main.exception(f"Error encoding images: {e}")
+            errors.append("Error encoding images.")
+
+        # Read ROI & threshold data
+        roi_data = read_json(ROI_JSON_PATH)
+        threshold_data = read_json(THRESHOLD_JSON_PATH)
+
+        if "error" in roi_data:
+            errors.append(roi_data["error"])
+        if "error" in threshold_data:
+            errors.append(threshold_data["error"])
+
+        # Handle errors
+        if errors:
+            logger_main.warning(f"Errors occurred: {errors}")
+            return JSONResponse(content={"errors": errors}, status_code=500)
+
+        # Construct response
+        response_data = {
+            "images": {
+                "image1": im1_b64,
+                "image2": im2_b64
+            },
+            "roi": roi_data,
+            "threshold": threshold_data
+        }
+
+        logger_main.info("Successfully fetched old images, ROI, and threshold data.")
+        return response_data
+
+    except Exception as e:
+        logger_main.exception(f"Unexpected error in get_old_roi_data: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+
+
+
+import uvicorn
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=9001)
