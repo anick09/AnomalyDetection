@@ -1,9 +1,10 @@
-from fastapi import FastAPI, File, UploadFile, Form
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from pydantic import BaseModel
 import os
 import hashlib
 import datetime
 import sqlite3
+import base64
 import uvicorn
 import logging
 import json
@@ -76,41 +77,6 @@ def log_file_upload(file_name, checksum, status, file_type):
     conn.close()
     logger.info(f"Logged upload: {file_name} with status {status}")
 
-# # Endpoint to Receive Files
-# @app.post("/api/upload")
-# async def upload_files(checksums: str = Form(...), files: list[UploadFile] = File(...)):
-#     logger.info(f"Received files: {[f.filename for f in files]}")
-#     logger.info(f"Received checksums: {checksums}")
-    
-#     try:
-#         checksums_dict = json.loads(checksums)  # Safer than eval
-#     except json.JSONDecodeError as e:
-#         logger.error(f"Failed to parse checksums: {e}")
-#         return {"status": "error", "message": f"Invalid checksums: {e}"}
-    
-#     response_checksums = {}
-    
-#     for file in files:
-#         file_type = "json" if file.filename.endswith(".json") else "image" if file.filename.endswith((".jpg", ".png")) else "log"
-#         save_dir = JSON_DIR if file_type == "json" else IMAGE_DIR if file_type == "image" else LOG_DIR
-#         file_path = os.path.join(save_dir, file.filename)
-        
-#         # Save File
-#         logger.info(f"Saving file to: {file_path}")
-#         with open(file_path, "wb") as buffer:
-#             buffer.write(await file.read())
-        
-#         # Verify Checksum
-#         checksum = generate_checksum(file_path)
-#         status = "success" if checksums_dict.get(file.filename) == checksum else "failure"
-#         response_checksums[file.filename] = checksum
-        
-#         # Log in DB
-#         log_file_upload(file.filename, checksum, status, file_type)
-    
-#     logger.info("Upload processing completed.")
-#     return {"status": "success", "checksums": response_checksums}
-
 
 @app.post("/api/upload")
 async def upload_files(checksums: str = Form(...), files: list[UploadFile] = File(...)):
@@ -160,6 +126,39 @@ async def upload_files(checksums: str = Form(...), files: list[UploadFile] = Fil
     
     logger.info("Upload processing completed.")
     return {"status": "success" if all_success else "failure", "checksums": response_checksums}
+
+# NEW: Endpoint to retrieve base64-encoded images
+class ImageRequest(BaseModel):
+    filename: str
+
+
+@app.post("/api/get_image")
+async def get_image(request: ImageRequest):
+    filename = request.filename
+    file_path = os.path.join(IMAGE_DIR, filename)
+    
+    logger.info(f"Received request for image: {filename}")
+    
+    try:
+        if not os.path.exists(file_path):
+            logger.error(f"Image not found: {file_path}")
+            # log_file_request(filename, None, "failure", "image", "retrieval")
+            raise HTTPException(status_code=404, detail="Image not found")
+        
+        with open(file_path, "rb") as img_file:
+            image_data = img_file.read()
+            image_base64 = base64.b64encode(image_data).decode('utf-8')
+        
+        checksum = generate_checksum(file_path)
+        # log_file_request(filename, checksum, "success", "image", "retrieval")
+        logger.info(f"Successfully retrieved image: {filename}")
+        
+        return {"status": "success", "image_base64": image_base64}
+    
+    except Exception as e:
+        logger.error(f"Failed to retrieve image {filename}: {e}")
+        # log_file_request(filename, None, "failure", "image", "retrieval")
+        raise HTTPException(status_code=500, detail=str(e))
 
 def main():
     setup_directories()

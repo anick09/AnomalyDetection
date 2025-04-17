@@ -4,17 +4,48 @@ import time
 import schedule
 import os
 import logging
+from datetime import datetime
+import pytz
 
 # Initialize logging
 LOGS_DIR_LOGGING = "/data/server_sync_logs"
 os.makedirs(LOGS_DIR_LOGGING, exist_ok=True)
 log_file_path = os.path.join(LOGS_DIR_LOGGING, "cron_service.log")
-logging.basicConfig(
-    filename=log_file_path,
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-)
+
+class SwissFormatter(logging.Formatter):
+    def converter(self, timestamp):
+        dt = datetime.fromtimestamp(timestamp, pytz.timezone('Europe/Zurich'))
+        return dt.timetuple()
+
+    def formatTime(self, record, datefmt=None):
+        ct = self.converter(record.created)
+        if datefmt:
+            return time.strftime(datefmt, ct)
+        else:
+            return time.strftime("%Y-%m-%d %H:%M:%S", ct)
+
+
+
+# logging.basicConfig(
+#     filename=log_file_path,
+#     level=logging.INFO,
+#     format='%(asctime)s - %(levelname)s - %(message)s',
+# )
+# logger = logging.getLogger(__name__)
+
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# File handler
+file_handler = logging.FileHandler(log_file_path)
+file_handler.setFormatter(SwissFormatter('%(asctime)s - %(levelname)s - %(message)s'))
+logger.addHandler(file_handler)
+
+# Console handler (optional, for debugging)
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(SwissFormatter('%(asctime)s - %(levelname)s - %(message)s'))
+logger.addHandler(console_handler)
+
 
 # Initialize the database connection
 conn = sqlite3.connect('/data/sync_service.db')
@@ -32,7 +63,9 @@ conn.commit()
 
 def populate_cron_table():
     """Inserts a new row with the current timestamp and default status."""
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    # timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    swiss_tz = pytz.timezone('Europe/Zurich')
+    timestamp = datetime.now(swiss_tz).strftime('%Y-%m-%d %H:%M:%S')
     cursor.execute('''
     INSERT INTO cron_table (timestamp, status) VALUES (?, 'pending')
     ''', (timestamp,))

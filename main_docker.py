@@ -17,38 +17,109 @@ import logging
 from fastapi.middleware.cors import CORSMiddleware
 import shutil
 import warnings
+import requests  # NEW: For cloud server API calls
 from typing import Optional
+
+# warnings.filterwarnings("ignore", category=UserWarning, module="torchvision")
+
+
+# swiss_tz = pytz.timezone('Europe/Zurich')
+
+# DOCKER_VOLUME_PATH = "/data" 
+
+# ROI_FILE = f"{DOCKER_VOLUME_PATH}/roi_data.json"
+# IMAGE_FOLDER = f"{DOCKER_VOLUME_PATH}/full_image_setROI"
+# BACKUP_FOLDER = f"{DOCKER_VOLUME_PATH}/backup_images"
+
+# os.makedirs(IMAGE_FOLDER, exist_ok=True)
+# os.makedirs(BACKUP_FOLDER, exist_ok=True)
+
+# TEMP_FOLDER = os.path.join(IMAGE_FOLDER, "temp")
+
+
+# LOG_DIR = f"{DOCKER_VOLUME_PATH}/main_logs"
+
+# if not os.path.exists(LOG_DIR):
+#     os.makedirs(LOG_DIR)
+
+# # Unique log file for process_image.py
+# log_filename = f'{LOG_DIR}/process_image_{datetime.now(pytz.timezone("Europe/Zurich")).strftime("%Y%m%d")}.log'
+
+# # Configure a separate logger for process_image.py
+# logger_main = logging.getLogger("main")  # <== Named Logger
+# logger_main.setLevel(logging.INFO)
+
+# # Prevent duplicate handlers if script is re-imported
+# if not logger_main.hasHandlers():
+#     file_handler = logging.FileHandler(log_filename)
+#     file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+#     logger_main.addHandler(file_handler)
+
+#     console_handler = logging.StreamHandler()
+#     console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+#     logger_main.addHandler(console_handler)
+
+# logger_main.info("Logging initialized in main_logs")
 
 warnings.filterwarnings("ignore", category=UserWarning, module="torchvision")
 
-
+# Timezone setup
 swiss_tz = pytz.timezone('Europe/Zurich')
 
-DOCKER_VOLUME_PATH = "/data" 
-
+# Paths
+DOCKER_VOLUME_PATH = "/data"
+ROI_FILE = f"{DOCKER_VOLUME_PATH}/roi_data.json"
+IMAGE_FOLDER = f"{DOCKER_VOLUME_PATH}/full_image_setROI"
+BACKUP_FOLDER = f"{DOCKER_VOLUME_PATH}/backup_images"
+TEMP_FOLDER = os.path.join(IMAGE_FOLDER, "temp")
 LOG_DIR = f"{DOCKER_VOLUME_PATH}/main_logs"
 
-if not os.path.exists(LOG_DIR):
-    os.makedirs(LOG_DIR)
+# Ensure folders exist
+os.makedirs(IMAGE_FOLDER, exist_ok=True)
+os.makedirs(BACKUP_FOLDER, exist_ok=True)
+os.makedirs(LOG_DIR, exist_ok=True)
 
-# Unique log file for process_image.py
-log_filename = f'{LOG_DIR}/process_image_{datetime.now(pytz.timezone("Europe/Zurich")).strftime("%Y%m%d")}.log'
+# Swiss timestamp for log filename
+log_filename = f'{LOG_DIR}/process_image_{datetime.now(swiss_tz).strftime("%Y%m%d")}.log'
 
-# Configure a separate logger for process_image.py
-logger_main = logging.getLogger("main")  # <== Named Logger
+# Configure named logger
+logger_main = logging.getLogger("main")
 logger_main.setLevel(logging.INFO)
 
-# Prevent duplicate handlers if script is re-imported
+# Avoid duplicate handlers
 if not logger_main.hasHandlers():
+    # file_handler = logging.FileHandler(log_filename)
+    # file_handler.setFormatter(logging.Formatter(
+    #     '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    #     datefmt='%Y-%m-%d %H:%M:%S'
+    # ))
+    # logger_main.addHandler(file_handler)
+
+    # console_handler = logging.StreamHandler()
+    # console_handler.setFormatter(logging.Formatter(
+    #     '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    #     datefmt='%Y-%m-%d %H:%M:%S'
+    # ))
+
+    logging.Formatter.converter = lambda *args: datetime.now(swiss_tz).timetuple()
+
     file_handler = logging.FileHandler(log_filename)
-    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-    logger_main.addHandler(file_handler)
+    file_handler.setFormatter(logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    ))
 
     console_handler = logging.StreamHandler()
-    console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    console_handler.setFormatter(logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    ))
+
     logger_main.addHandler(console_handler)
 
 logger_main.info("Logging initialized in main_logs")
+
+
 
 app = FastAPI()
 
@@ -502,10 +573,6 @@ async def submit_roi(data: SubmitROIRequest):
         x, y, w, h = data.bounding_box.x, data.bounding_box.y, data.bounding_box.width, data.bounding_box.height
         roi = frame[y:y+h, x:x+w]
 
-        cv2.imshow("roi",roi)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-
 
         if roi.size == 0:
             raise HTTPException(status_code=400, detail="Invalid bounding box dimensions")
@@ -513,7 +580,7 @@ async def submit_roi(data: SubmitROIRequest):
         # Save cropped ROI and full image with timestamp
         timestamp = datetime.now(swiss_tz).strftime('%Y-%m-%d_%H-%M-%S')
         full_img_path = os.path.join(IMAGE_FOLDER, f"{data.camera_id}_{timestamp}.jpg")
-        roi_filename = f"roi_camera_{data.camera_id}.jpg"
+        roi_filename = f"{DOCKER_VOLUME_PATH}/roi_camera_{data.camera_id}.jpg"
         # roi_path = os.path.join(IMAGE_FOLDER, roi_filename)
         roi_path=roi_filename
 
@@ -529,9 +596,9 @@ async def submit_roi(data: SubmitROIRequest):
         save_roi_data(data.camera_id, data.bounding_box)
         
 
-        # Cleanup: Remove temp image
-        os.remove(temp_image_path)
-        logger_main.info(f"Temp image deleted: {temp_image_path}")
+        # # Cleanup: Remove temp image
+        # os.remove(temp_image_path)
+        # logger_main.info(f"Temp image deleted: {temp_image_path}")
 
 
         return {"status": "Success", "roi_image_path": roi_path}
@@ -546,7 +613,26 @@ async def submit_roi(data: SubmitROIRequest):
         raise HTTPException(status_code=500, detail="An unexpected error occurred")
 
 
-#--------------------------------------------------------------------------------------------------------------------
+# #--------------------------------------------------------------------------------------------------------------------
+# @app.delete("/cleanup/")
+# def cleanup_temp_folder():
+#     """
+#     Endpoint to clean up the temp folder.
+#     Deletes the folder and logs the action.
+#     """
+#     try:
+#         if os.path.exists(TEMP_FOLDER):
+#             shutil.rmtree(TEMP_FOLDER)
+#             logger_main.info(f"Temp folder deleted: {TEMP_FOLDER}")
+#             return {"message": "Temp folder deleted", "path": TEMP_FOLDER}
+#         else:
+#             logger_main.info(f"No temp folder found at: {TEMP_FOLDER}")
+#             return {"message": "No temp folder to delete", "path": TEMP_FOLDER}
+#     except Exception as e:
+#         logger_main.error(f"Error deleting temp folder: {e}")
+#         raise HTTPException(status_code=500, detail="Internal Server Error")
+
+# #----------------------------------------------------------------------------------------------------------------------
 
 THRESHOLD_FILE = f"{DOCKER_VOLUME_PATH}/threshold.json"
 
@@ -920,12 +1006,35 @@ def get_inspections(session_id: int):
     for row in cursor.fetchall():
         inspection_id, timestamp, img_path1, img_path2 = row
         
-        def encode_image(img_path):
+        def encode_image(img_path: str) -> Optional[str]:
             try:
+                # Try reading local file
                 with open(img_path, "rb") as img_file:
+                    logger_main.info(f"Successfully read local image: {img_path}")
                     return base64.b64encode(img_file.read()).decode('utf-8')
-            except Exception:
-                return None  # Handle missing images gracefully
+            except FileNotFoundError:
+                # If local file is missing, try fetching from cloud server
+                filename = os.path.basename(img_path)
+                logger_main.warning(f"Local image not found: {img_path}, attempting to fetch {filename} from cloud server")
+                try:
+                    # Call cloud server API
+                    response = requests.post(
+                        "http://192.168.1.74:9002/api/get_image",
+                        json={"filename": filename}
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    if data["status"] == "success":
+                        logger_main.info(f"Retrieved image {filename} from cloud server")
+                        return data["image_base64"]
+                    else:
+                        logger_main.error(f"Cloud server returned error for {filename}: {data.get('detail', 'Unknown error')}")
+                except requests.RequestException as e:
+                    logger_main.error(f"Failed to fetch image {filename} from cloud server: {e}")
+                return None
+            except Exception as e:
+                logger_main.error(f"Error encoding image {img_path}: {e}")
+                return None
         
         # Fetch AI-detected bounding boxes
         cursor.execute("""
@@ -1176,15 +1285,13 @@ def get_data():
     # Read ROI and threshold JSON data
     roi_data = read_json(ROI_JSON_PATH)
     if "error" in roi_data:
-        errors.append(roi_data["error"])
+        logger_main.warning(f"ROI data not found: {roi_data['error']}")
+        roi_data = {}  # Default to empty dict
 
     threshold_data = read_json(THRESHOLD_JSON_PATH)
     if "error" in threshold_data:
-        errors.append(threshold_data["error"])
-
-    if errors:
-        logger_main.warning(f"Errors occurred: {errors}")
-        return JSONResponse(content={"errors": errors}, status_code=500)
+        logger_main.warning(f"Threshold data not found: {threshold_data['error']}")
+        threshold_data = {}  # Default to empty dict
 
     # Construct response
     response_data = {
@@ -1294,10 +1401,166 @@ def get_old_data():
     except Exception as e:
         logger_main.exception(f"Unexpected error in get_old_roi_data: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
+    
+
+#-------------------------------------------------------------------------------------------------------------------------------
+# Endpoint to insert users
+
+class UserCreate(BaseModel):
+    username: str
+    password: str
+    role: str
+
+# Base64 encode (for test/demo only)
+def encode_password(password):
+    return base64.b64encode(password.encode()).decode()
+
+@app.post("/add_user/")
+def add_user(user: UserCreate):
+    try:
+        conn, cursor = get_db()
+
+        # Check if username already exists
+        cursor.execute("SELECT * FROM Users WHERE username = ?", (user.username,))
+        if cursor.fetchone():
+            logger_main.warning(f"Attempt to add duplicate user: {user.username}")
+            raise HTTPException(status_code=400, detail="Username already exists")
+
+        encoded_password = encode_password(user.password)
+
+        cursor.execute(
+            "INSERT INTO Users (username, password, role, retries_left) VALUES (?, ?, ?, ?)",
+            (user.username, encoded_password, user.role, 3)
+        )
+        conn.commit()
+
+        logger_main.info(f"New user added: {user.username} with role {user.role}")
+        return {"message": f"User '{user.username}' added successfully"}
+
+    except HTTPException as http_ex:
+        # Let FastAPI handle the HTTP error
+        logger_main.warning(f"HTTPException: {http_ex.detail}")
+        raise http_ex
+
+    except Exception as e:
+        logger_main.error(f"Unexpected error adding user: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to add user to the database")
+
+    finally:
+        conn.close()
+        
+@app.get("/users/")
+def show_all_users():
+    try:
+        conn, cursor = get_db()
+        cursor.execute("SELECT username, role, retries_left FROM Users")
+        users = cursor.fetchall()
+
+        user_list = [
+            {"username": row[0], "role": row[1], "retries_left": row[2]}
+            for row in users
+        ]
+
+        logger_main.info("Fetched all users")
+        return {"users": user_list}
+
+    except Exception as e:
+        logger_main.error(f"Error fetching users: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve users")
+
+    finally:
+        conn.close()
+
+class PasswordUpdate(BaseModel):
+    username: str
+    new_password: str
+
+@app.put("/update_password/")
+def update_password(data: PasswordUpdate):
+    try:
+        conn, cursor = get_db()
+
+        # Check if user exists
+        cursor.execute("SELECT * FROM Users WHERE username = ?", (data.username,))
+        if not cursor.fetchone():
+            logger_main.warning(f"Password update failed: {data.username} not found")
+            raise HTTPException(status_code=404, detail="User not found")
+
+        encoded_password = encode_password(data.new_password)
+
+        cursor.execute(
+            "UPDATE Users SET password = ? WHERE username = ?",
+            (encoded_password, data.username)
+        )
+        conn.commit()
+
+        logger_main.info(f"Password updated for user: {data.username}")
+        return {"message": f"Password updated for user '{data.username}'"}
+
+    except HTTPException as http_ex:
+        raise http_ex
+
+    except Exception as e:
+        logger_main.error(f"Unexpected error updating password: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to update password")
+
+    finally:
+        conn.close()
+
+@app.delete("/delete_user/{username}")
+def delete_user(username: str):
+    try:
+        conn, cursor = get_db()
+
+        # Check if user exists
+        cursor.execute("SELECT * FROM Users WHERE username = ?", (username,))
+        if not cursor.fetchone():
+            logger_main.warning(f"Delete failed: {username} not found")
+            raise HTTPException(status_code=404, detail="User not found")
+
+        cursor.execute("DELETE FROM Users WHERE username = ?", (username,))
+        conn.commit()
+
+        logger_main.info(f"User deleted: {username}")
+        return {"message": f"User '{username}' deleted successfully"}
+
+    except HTTPException as http_ex:
+        raise http_ex
+
+    except Exception as e:
+        logger_main.error(f"Unexpected error deleting user: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to delete user")
+
+    finally:
+        conn.close()
+
+#-------------------------------------------------------------------------------------------------------------------------------
+# Endpoint to handle handshake from the Android app
+# Request model from the Android app
+class HandshakeRequest(BaseModel):
+    device_id: str
+    app_version: str
+
+# Response from the server
+class HandshakeResponse(BaseModel):
+    server_time: str
+    status: str
+    message: str
+
+@app.post("/handshake", response_model=HandshakeResponse)
+async def handshake(request: HandshakeRequest):
+    print(f"Handshake received from: {request.device_id} | Version: {request.app_version}")
+    
+    return HandshakeResponse(
+        server_time=datetime.utcnow().isoformat(),
+        status="success",
+        message="Handshake successful. You are connected to the correct edge server."
+    )
+
 
 
 
 import uvicorn
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="192.168.1.47", port=8001)
+    uvicorn.run(app, host="0.0.0.0", port=53829)

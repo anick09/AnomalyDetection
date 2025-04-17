@@ -40,6 +40,7 @@ logger.setLevel(logging.INFO)
 
 # Prevent duplicate handlers if script is re-imported
 if not logger.hasHandlers():
+    logging.Formatter.converter = lambda *args: datetime.now(swiss_tz).timetuple()
     file_handler = logging.FileHandler(log_filename)
     file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     logger.addHandler(file_handler)

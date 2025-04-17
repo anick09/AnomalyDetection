@@ -47,19 +47,6 @@ if not os.path.exists(LOG_DIR):
 # logger_main.info("Logging initialized in main_logs")
 
 # Configure logging
-# Unique log file for process_image.py
-log_filename = f'{LOG_DIR}/process_image_{datetime.now(pytz.timezone("Europe/Zurich")).strftime("%Y%m%d")}.log'
-
-# Configure a separate logger for process_image.py
-logger_main = logging.getLogger("main")  # <== Named Logger
-logger_main.setLevel(logging.INFO)
-
-# Prevent duplicate handlers if script is re-imported
-if not logger_main.hasHandlers():
-    file_handler = logging.FileHandler(log_filename)
-    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-    logger_main.addHandler(file_handler)
-
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     logger_main.addHandler(console_handler)

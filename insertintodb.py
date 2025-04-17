@@ -21,9 +21,14 @@ def insert_dummy_users():
 
     # Dummy users
     users = [
-        ("admin", encode_password("admin123"), "admin", 3),
+        ("admin1", encode_password("admin123"), "admin", 3),
+        ("admin2", encode_password("admin234"), "admin", 3),
+        ("admin3", encode_password("admin345"), "admin", 3),
         ("user1", encode_password("password1"), "user", 3),
-        ("user2", encode_password("password2"), "user", 3)
+        ("user2", encode_password("password2"), "user", 3),
+        ("user3", encode_password("password3"), "user", 3),
+        ("user4", encode_password("password4"), "user", 3),
+        ("user5", encode_password("password5"), "user", 3)
     ]
 
     # Insert dummy users
